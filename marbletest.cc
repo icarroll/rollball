@@ -257,6 +257,7 @@ int main(int nargs, char * args[])
             draw_scene();
             SDL_GL_SwapWindow(gWindow);
             frame += 1;
+            SDL_FlushEvent(FRAME_TICK); // don't pile up frame ticks
         }
     }
 
