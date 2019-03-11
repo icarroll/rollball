@@ -1,22 +1,22 @@
 #version 330 core
 
 // Image shaders implement the mainImage() function in order to generate the procedural images by computing a color for each pixel. This function is expected to be called once per pixel, and it is responsability of the host application to provide the right inputs to it and get the output color from it and assign it to the screen pixel. The prototype is:
-// 
+//
 // void mainImage( out vec4 fragColor, in vec2 fragCoord );
-// 
+//
 // where fragCoord contains the pixel coordinates for which the shader needs to compute a color. The coordinates are in pixel units, ranging from 0.5 to resolution-0.5, over the rendering surface, where the resolution is passed to the shader through the iResolution uniform (see below).
-// 
+//
 // The resulting color is gathered in fragColor as a four component vector, the last of which is ignored by the client. The result is gathered as an "out" variable in prevision of future addition of multiple render targets.
-// 
+//
 // -----
-// 
+//
 // Shader can be fed with different types of per-frame static information by using the following uniform variables:
-// 
+//
 // uniform vec3 iResolution;
 // uniform float iTime;
 // uniform vec4 iMouse;
 // uniform samplerXX iChanneli;
-// 
+//
 // //uniform float iTimeDelta;
 // //uniform float iFrame;
 // //uniform float iChannelTime[4];
@@ -48,7 +48,7 @@ vec2 cmul( vec2 a, vec2 b )  { return vec2( a.x*b.x - a.y*b.y, a.x*b.y + a.y*b.x
 vec2 csqr( vec2 a )  { return vec2( a.x*a.x - a.y*a.y, 2.*a.x*a.y  ); }
 
 mat2 rot(float a) {
-    return mat2(cos(a),sin(a),-sin(a),cos(a));  
+    return mat2(cos(a),sin(a),-sin(a),cos(a));
 }
 
 vec2 iSphere( in vec3 ro, in vec3 rd, in vec4 sph )//from iq
@@ -64,14 +64,14 @@ vec2 iSphere( in vec3 ro, in vec3 rd, in vec4 sph )//from iq
 
 float map(in vec3 p) {
     float res = 0.;
-    
+
     vec3 c = p;
     for (int i = 0; i < 10; ++i) {
         p =.7*abs(p+cos(iTime*0.15+1.6)*0.15)/dot(p,p) -.7+cos(iTime*0.15)*0.15;
         p.yz= csqr(p.yz);
         p=p.zxy;
         res += exp(-19. * abs(dot(p,c)));
-        
+
     }
     return res/2.;
 }
@@ -87,16 +87,16 @@ vec3 raymarch( in vec3 ro, vec3 rd, vec2 tminmax )
     {
         t+=dt*exp(-2.*c);
         if(t>tminmax.y)break;
-        
-        //vec3 pos = refract( ro, (ro+t*rd)/2., 0.76); 
+
+        //vec3 pos = refract( ro, (ro+t*rd)/2., 0.76);
         //c = map(pos);
-        
+
         vec3 pos = ro+t*rd;
-        c = map(ro+t*rd);               
-        
-        //col = .99*col+ .08*vec3(c*c, c, c*c*c);//green    
+        c = map(ro+t*rd);
+
+        //col = .99*col+ .08*vec3(c*c, c, c*c*c);//green
         col = .99*col+ .08*vec3(c*c*c, c*c, c);//blue
-    }    
+    }
     return col;
 }
 
@@ -120,22 +120,21 @@ void mainImage( out vec4 fragColor, in vec2 fragCoord )
     vec3 vv = normalize( cross(uu,ww));
     vec3 rd = normalize( p.x*uu + p.y*vv + 4.0*ww )*0.975;
 
-    
+
     vec2 tmm = iSphere( ro, rd, vec4(0.,0.,0.,2.) );
 
     // raymarch
     vec3 col = raymarch(ro,rd,tmm);
     //if (tmm.x<0.)col = texture(iChannel0, rd).rgb;
-    if (tmm.x<0.)col = envcolor;
+    if (tmm.x<0.) discard;
     else {
         vec3 nor=(ro+tmm.x*rd)/2.;
-        nor = reflect(rd, nor);        
+        nor = reflect(rd, nor);
         float fre = pow(.5+ clamp(dot(nor,rd),0.0,1.0), 3. )*1.3;
         //col += texture(iChannel0, nor).rgb * fre;
         col += envcolor * fre;
-    
     }
-    
+
     // shade
     col =  .5 *(log(1.+col));
     col = clamp(col,0.,1.);
