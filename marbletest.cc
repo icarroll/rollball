@@ -117,8 +117,9 @@ void setup_shaders() {
     shaderfile.seekg(0, ios::end);
     int length = shaderfile.tellg();
     shaderfile.seekg(0, ios::beg);
-    char * fragment_shader_code = new char[length];
+    char * fragment_shader_code = new char[length+1];
     shaderfile.read(fragment_shader_code, length);
+    fragment_shader_code[length] = '\0';
     shaderfile.close();
 
     unsigned int fragmentShader;
