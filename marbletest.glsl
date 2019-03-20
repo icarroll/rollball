@@ -41,6 +41,7 @@ vec3 iResolution = vec3(1.0, 1.0, 1.0);
 vec3 envcolor = vec3(0.2, 0.3, 0.3);
 
 uniform float iTime;
+uniform mat3 obj_rotation;
 
 float zoom=1.;
 
@@ -79,17 +80,14 @@ float map(in vec3 p) {
 vec3 raymarch( in vec3 ro, vec3 rd, vec2 tminmax )
 {
     float t = tminmax.x;
-    //float dt = .1;
-    float dt = .1 - .075*cos(iTime*.025);//animated
+    float dt = .1;
+    //float dt = .1 - .075*cos(iTime);//animated
     vec3 col= vec3(0.);
     float c = 0.;
     for( int i=0; i<64; i++ )
     {
         t+=dt*exp(-2.*c);
         if(t>tminmax.y)break;
-
-        //vec3 pos = refract( ro, (ro+t*rd)/2., 0.76);
-        //c = map(pos);
 
         vec3 pos = ro+t*rd;
         c = map(ro+t*rd);
@@ -112,8 +110,11 @@ void mainImage( out vec4 fragColor, in vec2 fragCoord )
 
     // camera
     vec3 ro = zoom*vec3(4.);
-    ro.yz*=rot(m.y);
-    ro.xz*=rot(m.x + 0.25*time);
+    ro = obj_rotation * ro;
+    /*
+    ro.yz*=rot(m.y + time);
+    ro.xz*=rot(m.x + time);
+    */
     vec3 ta = vec3( 0.0 , 0.0, 0.0 );
     vec3 ww = normalize( ta - ro );
     vec3 uu = normalize( cross(ww,vec3(0.0,1.0,0.0) ) );

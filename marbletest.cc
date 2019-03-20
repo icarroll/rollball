@@ -7,6 +7,8 @@
 #define GLM_ENABLE_EXPERIMENTAL
 #include <glm/gtx/normal.hpp>
 
+#include "reactphysics3d.h"
+
 extern "C" {
 #include <SDL.h>
 #include <GL/glew.h>
@@ -27,6 +29,7 @@ void die(string message) {
     exit(1);
 }
 
+// print out OpenGL error messages
 void GLAPIENTRY MessageCallback(
         GLenum source,
         GLenum type,
@@ -81,7 +84,8 @@ void close()
     SDL_Quit();
 }
 
-GLuint shaderProgram;
+GLuint marbleShaderProgram;
+GLuint groundShaderProgram;
 
 void setup_shaders() {
     // vertex shader
@@ -112,7 +116,7 @@ void setup_shaders() {
         die("vertex shader");
     }
 
-    // fragment shader
+    // marble fragment shader
     ifstream shaderfile("marbletest.glsl");
     shaderfile.seekg(0, ios::end);
     int length = shaderfile.tellg();
@@ -134,61 +138,112 @@ void setup_shaders() {
         die("fragment shader");
     }
 
-    // shader program
-    shaderProgram = glCreateProgram();
-    glAttachShader(shaderProgram, vertexShader);
-    glAttachShader(shaderProgram, fragmentShader);
-    glLinkProgram(shaderProgram);
-    glGetProgramiv(shaderProgram, GL_LINK_STATUS, & success);
+    // ground fragment shader
+    ifstream ground_shaderfile("marbletest_ground.glsl");
+    ground_shaderfile.seekg(0, ios::end);
+    length = ground_shaderfile.tellg();
+    ground_shaderfile.seekg(0, ios::beg);
+    char * ground_fragment_shader_code = new char[length+1];
+    ground_shaderfile.read(ground_fragment_shader_code, length);
+    ground_fragment_shader_code[length] = '\0';
+    ground_shaderfile.close();
+
+    unsigned int ground_fragmentShader;
+    ground_fragmentShader = glCreateShader(GL_FRAGMENT_SHADER);
+    glShaderSource(ground_fragmentShader, 1, & ground_fragment_shader_code, NULL);
+    glCompileShader(ground_fragmentShader);
+    glGetShaderiv(ground_fragmentShader, GL_COMPILE_STATUS, & success);
     if (! success) {
         char infoLog[512];
-        glGetShaderInfoLog(shaderProgram, 512, NULL, infoLog);
+        glGetShaderInfoLog(ground_fragmentShader, 512, NULL, infoLog);
         cout << infoLog << endl;
-        die("shader program");
+        die("ground fragment shader");
+    }
+
+    // shader programs
+    marbleShaderProgram = glCreateProgram();
+    glAttachShader(marbleShaderProgram, vertexShader);
+    glAttachShader(marbleShaderProgram, fragmentShader);
+    glLinkProgram(marbleShaderProgram);
+    glGetProgramiv(marbleShaderProgram, GL_LINK_STATUS, & success);
+    if (! success) {
+        char infoLog[512];
+        glGetShaderInfoLog(marbleShaderProgram, 512, NULL, infoLog);
+        cout << infoLog << endl;
+        die("marble shader program");
+    }
+
+    groundShaderProgram = glCreateProgram();
+    glAttachShader(groundShaderProgram, vertexShader);
+    glAttachShader(groundShaderProgram, ground_fragmentShader);
+    glLinkProgram(groundShaderProgram);
+    glGetProgramiv(groundShaderProgram, GL_LINK_STATUS, & success);
+    if (! success) {
+        char infoLog[512];
+        glGetShaderInfoLog(groundShaderProgram, 512, NULL, infoLog);
+        cout << infoLog << endl;
+        die("ground shader program");
     }
 
     // delete shaders (unneeded after program link)
     glDeleteShader(vertexShader);
     glDeleteShader(fragmentShader);
+    glDeleteShader(ground_fragmentShader);
 }
 
-int frame = 0;
+float min_height = 0.0;
+float max_height = 1.0;
+// column-major order
+float ground_heights[7][7] = {
+    {1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0},
+    {1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0},
+    {1.0, 0.0, 0.5, 0.0, 0.0, 0.0, 1.0},
+    {1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0},
+    {1.0, 0.0, 0.0, 0.0, 0.5, 0.0, 1.0},
+    {1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0},
+    {1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0},
+};
 
-void draw_scene() {
-    // background color
-    glClearColor(0.2, 0.3, 0.3, 1.0);
-    glEnable(GL_DEPTH_TEST);
-    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+rp3d::DynamicsWorld * world;
+rp3d::RigidBody * ground_body;
+rp3d::RigidBody * marble_body;
 
-    // set up uniform values
-    glUseProgram(shaderProgram);
-    unsigned int projectionLoc = glGetUniformLocation(shaderProgram, "projection");
-    unsigned int viewLoc = glGetUniformLocation(shaderProgram, "view");
-    unsigned int lightPosLoc = glGetUniformLocation(shaderProgram, "lightPos");
-    unsigned int lightColorLoc = glGetUniformLocation(shaderProgram, "lightColor");
+GLuint marble_vao;
 
-    auto projection = glm::perspective(glm::radians(90.0f), 1.0f, 0.1f, 100.0f);
-    glUniformMatrix4fv(projectionLoc, 1, GL_FALSE, glm::value_ptr(projection));
+void setup_scene() {
+    // gravity and world
+    rp3d::Vector3 gravity(0.0, -9.81, 0.0);
+    world = new rp3d::DynamicsWorld(gravity);
 
-    auto view = glm::mat4(1.0f);
-    view = glm::translate(view, glm::vec3(0.0, 0.0, -4.0));
-    glUniformMatrix4fv(viewLoc, 1, GL_FALSE, glm::value_ptr(view));
+    // ground heightfield
+    rp3d::Transform ground_pose(rp3d::Vector3(0, -0.5, 0), rp3d::Quaternion::identity());
+    ground_body = world->createRigidBody(ground_pose);
+    ground_body->setType(rp3d::BodyType::STATIC);
+    auto ground_shape = new rp3d::HeightFieldShape(7, 7, min_height, max_height, ground_heights, rp3d::HeightFieldShape::HeightDataType::HEIGHT_FLOAT_TYPE);
+    ground_body->addCollisionShape(ground_shape, rp3d::Transform(), 1.0);
+    auto ground_mat = ground_body->getMaterial();
+    ground_mat.setBounciness(rp3d::decimal(0.1));
+    ground_mat.setFrictionCoefficient(rp3d::decimal(0.0001));
 
-    glUniform3f(lightPosLoc, 1.0, 1.0, -1.0);
-    glUniform3f(lightColorLoc, 1.0, 1.0, 1.0);
+    // marble sphere
+    rp3d::Transform marble_pose(rp3d::Vector3(-0.5, 1.5, -1.0), rp3d::Quaternion::identity());
+    marble_body = world->createRigidBody(marble_pose);
+    auto marble_shape = new rp3d::SphereShape(0.5);
+    marble_body->addCollisionShape(marble_shape, rp3d::Transform(), 1.0);
+    auto marble_mat = marble_body->getMaterial();
+    marble_mat.setBounciness(rp3d::decimal(0.1));
+    marble_mat.setFrictionCoefficient(rp3d::decimal(0.0001));
 
-    // draw quad
     float vertices[] = {
         0.0,0.0,0.0, 0.0,0.0,1.0,
         1.0,0.0,0.0, 0.0,0.0,1.0,
         1.0,1.0,0.0, 0.0,0.0,1.0,
         0.0,1.0,0.0, 0.0,0.0,1.0
     };
-    GLuint vao;
-    glGenVertexArrays(1, & vao);
+    glGenVertexArrays(1, & marble_vao);
     GLuint vbo;
     glGenBuffers(1, & vbo);
-    glBindVertexArray(vao);
+    glBindVertexArray(marble_vao);
     glBindBuffer(GL_ARRAY_BUFFER, vbo);
     glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), vertices, GL_STATIC_DRAW);
 
@@ -206,22 +261,75 @@ void draw_scene() {
     glGenBuffers(1, & ebo);
     glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ebo);
     glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(elements), elements, GL_STATIC_DRAW);
+}
 
-    unsigned int modelLoc = glGetUniformLocation(shaderProgram, "model");
+int frame = 0;
+
+float time_step = 1.0 / 1000.0;
+void physics_step(float dt) {
+    for (float n=0 ; n<dt ; n+=time_step) {
+        world->update(time_step);
+    }
+}
+
+void draw_scene() {
+    // background color
+    glClearColor(0.2, 0.3, 0.3, 1.0);
+    glEnable(GL_DEPTH_TEST);
+    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+    // set up uniform values
+    glUseProgram(marbleShaderProgram);
+    unsigned int projectionLoc = glGetUniformLocation(marbleShaderProgram, "projection");
+    unsigned int viewLoc = glGetUniformLocation(marbleShaderProgram, "view");
+    unsigned int lightPosLoc = glGetUniformLocation(marbleShaderProgram, "lightPos");
+    unsigned int lightColorLoc = glGetUniformLocation(marbleShaderProgram, "lightColor");
+
+    auto projection = glm::perspective(glm::radians(90.0f), 1.0f, 0.1f, 100.0f);
+    glUniformMatrix4fv(projectionLoc, 1, GL_FALSE, glm::value_ptr(projection));
+
+    auto view = glm::mat4(1.0f);
+    view = glm::translate(view, glm::vec3(0.0, 0.0, -4.0));
+    glUniformMatrix4fv(viewLoc, 1, GL_FALSE, glm::value_ptr(view));
+
+    glUniform3f(lightPosLoc, 1.0, 1.0, -1.0);
+    glUniform3f(lightColorLoc, 1.0, 1.0, 1.0);
+
+    // marble sphere
     auto model = glm::mat4(1.0f);
-    model = glm::translate(model, glm::vec3(-3, -3, 0));
-    model = glm::scale(model, glm::vec3(6, 6, 6));
+    auto marble_tran = marble_body->getTransform();
+
+    rp3d::Vector3 tempv = marble_tran.getPosition();
+    glm::vec3 marble_pos;
+    marble_pos.x = tempv.x;
+    marble_pos.y = tempv.y;
+    marble_pos.z = tempv.z;
+    model = glm::translate(model, marble_pos);
+    model = glm::translate(model, glm::vec3(-0.5, -0.5, 0));
+    unsigned int modelLoc = glGetUniformLocation(marbleShaderProgram, "model");
     glUniformMatrix4fv(modelLoc, 1, GL_FALSE, glm::value_ptr(model));
 
-    unsigned int objectColorLoc = glGetUniformLocation(shaderProgram, "objectColor");
+    rp3d::Matrix3x3 tempm = marble_tran.getOrientation().getMatrix();
+    glm::mat3 marble_rot;
+    for (int y=0 ; y<3 ; y+=1) {
+        for (int x=0 ; x<3 ; x+=1) {
+            marble_rot[y][x] = tempm[y][x];
+            cout << marble_rot[y][x] << ' ';
+        }
+        cout << endl;
+    }
+    cout << endl;
+    unsigned int obj_rotationLoc = glGetUniformLocation(marbleShaderProgram, "obj_rotation");
+    glUniformMatrix3fv(obj_rotationLoc, 1, GL_FALSE, glm::value_ptr(marble_rot));
+
+    unsigned int objectColorLoc = glGetUniformLocation(marbleShaderProgram, "objectColor");
     glm::vec3 color = {0.0, 1.0, 1.0};
     glUniform3fv(objectColorLoc, 1, glm::value_ptr(color));
 
-    unsigned int iTimeLoc = glGetUniformLocation(shaderProgram, "iTime");
+    unsigned int iTimeLoc = glGetUniformLocation(marbleShaderProgram, "iTime");
     glUniform1f(iTimeLoc, frame * (20.0 / 1000.0));
 
-    glBindVertexArray(vao);
-
+    glBindVertexArray(marble_vao);
     glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0);
 }
 
@@ -241,7 +349,7 @@ int main(int nargs, char * args[])
 
     setup_shaders();
 
-    //setup_scene();
+    setup_scene();
 
     // timer tick every 20msec
     FRAME_TICK = SDL_RegisterEvents(1);
@@ -255,8 +363,11 @@ int main(int nargs, char * args[])
 
         if (e.type == SDL_QUIT) done = true;
         else if (e.type == FRAME_TICK) {
+            physics_step(20.0/1000.0); // step forward 20msec
+
             draw_scene();
             SDL_GL_SwapWindow(gWindow);
+
             frame += 1;
             SDL_FlushEvent(FRAME_TICK); // don't pile up frame ticks
         }
