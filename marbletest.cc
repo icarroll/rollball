@@ -1,5 +1,6 @@
-#include <iostream>
 #include <fstream>
+#include <iostream>
+#include <vector>
 
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
@@ -88,7 +89,7 @@ GLuint marbleShaderProgram;
 GLuint groundShaderProgram;
 
 void setup_shaders() {
-    // vertex shader
+    // marble vertex shader
     const char * vertex_shader_code =
         "#version 330 core\n"
         "layout (location = 0) in vec3 aPos;\n"
@@ -113,7 +114,31 @@ void setup_shaders() {
         char infoLog[512];
         glGetShaderInfoLog(vertexShader, 512, NULL, infoLog);
         cout << infoLog << endl;
-        die("vertex shader");
+        die("marble vertex shader");
+    }
+
+    // ground vertex shader
+    const char * ground_vertex_shader_code =
+        "#version 330 core\n"
+        "layout (location = 0) in vec3 aPos;\n"
+        "out vec3 FragPos;\n"
+        "uniform mat4 projection;\n"
+        "uniform mat4 view;\n"
+        "uniform mat4 model;\n"
+        "void main() {\n"
+        "  FragPos = aPos;\n"
+        "  gl_Position = projection * view * model * vec4(aPos, 1.0);\n"
+        "}";
+    unsigned int ground_vertexShader;
+    ground_vertexShader = glCreateShader(GL_VERTEX_SHADER);
+    glShaderSource(ground_vertexShader, 1, & ground_vertex_shader_code, NULL);
+    glCompileShader(ground_vertexShader);
+    glGetShaderiv(ground_vertexShader, GL_COMPILE_STATUS, & success);
+    if (! success) {
+        char infoLog[512];
+        glGetShaderInfoLog(ground_vertexShader, 512, NULL, infoLog);
+        cout << infoLog << endl;
+        die("ground vertex shader");
     }
 
     // marble fragment shader
@@ -136,6 +161,28 @@ void setup_shaders() {
         glGetShaderInfoLog(fragmentShader, 512, NULL, infoLog);
         cout << infoLog << endl;
         die("fragment shader");
+    }
+
+    // ground geometry shader
+    ifstream ground_geom_shaderfile("marbletest_ground_geom.glsl");
+    ground_geom_shaderfile.seekg(0, ios::end);
+    length = ground_geom_shaderfile.tellg();
+    ground_geom_shaderfile.seekg(0, ios::beg);
+    char * ground_geometry_shader_code = new char[length+1];
+    ground_geom_shaderfile.read(ground_geometry_shader_code, length);
+    ground_geometry_shader_code[length] = '\0';
+    ground_geom_shaderfile.close();
+
+    unsigned int ground_geometryShader;
+    ground_geometryShader = glCreateShader(GL_GEOMETRY_SHADER);
+    glShaderSource(ground_geometryShader, 1, & ground_geometry_shader_code, NULL);
+    glCompileShader(ground_geometryShader);
+    glGetShaderiv(ground_geometryShader, GL_COMPILE_STATUS, & success);
+    if (! success) {
+        char infoLog[512];
+        glGetShaderInfoLog(ground_geometryShader, 512, NULL, infoLog);
+        cout << infoLog << endl;
+        die("ground geometry shader");
     }
 
     // ground fragment shader
@@ -174,7 +221,8 @@ void setup_shaders() {
     }
 
     groundShaderProgram = glCreateProgram();
-    glAttachShader(groundShaderProgram, vertexShader);
+    glAttachShader(groundShaderProgram, ground_vertexShader);
+    glAttachShader(groundShaderProgram, ground_geometryShader);
     glAttachShader(groundShaderProgram, ground_fragmentShader);
     glLinkProgram(groundShaderProgram);
     glGetProgramiv(groundShaderProgram, GL_LINK_STATUS, & success);
@@ -191,22 +239,33 @@ void setup_shaders() {
     glDeleteShader(ground_fragmentShader);
 }
 
+void add_point(vector<float> & values, glm::vec3 point) {
+    values.push_back(point.x);
+    values.push_back(point.y);
+    values.push_back(point.z);
+}
+
 float min_height = 0.0;
 float max_height = 1.0;
 // column-major order
-float ground_heights[7][7] = {
-    {1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0},
-    {1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0},
-    {1.0, 0.0, 0.5, 0.0, 0.0, 0.0, 1.0},
-    {1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0},
-    {1.0, 0.0, 0.0, 0.0, 0.5, 0.0, 1.0},
-    {1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0},
-    {1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0},
+const int GH_HEIGHT = 7;
+const int GH_WIDTH = 7;
+float ground_heights[GH_HEIGHT][GH_WIDTH] = {
+    {0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5},
+    {0.5, 0.0, 0.0, 0.0, 0.0, 0.0, 0.5},
+    {0.5, 0.0, 1.0, 0.0, 0.0, 0.0, 0.5},
+    {0.5, 0.0, 0.0, 0.0, 0.0, 0.0, 0.5},
+    {0.5, 0.0, 0.0, 0.0, 1.0, 0.0, 0.5},
+    {0.5, 0.0, 0.0, 0.0, 0.0, 0.0, 0.5},
+    {0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5},
 };
 
 rp3d::DynamicsWorld * world;
 rp3d::RigidBody * ground_body;
 rp3d::RigidBody * marble_body;
+
+GLuint ground_vao;
+int ground_nverts;
 
 GLuint marble_vao;
 
@@ -216,7 +275,7 @@ void setup_scene() {
     world = new rp3d::DynamicsWorld(gravity);
 
     // ground heightfield
-    rp3d::Transform ground_pose(rp3d::Vector3(0, -0.5, 0), rp3d::Quaternion::identity());
+    rp3d::Transform ground_pose(rp3d::Vector3(0, 0.5, 0), rp3d::Quaternion::identity());
     ground_body = world->createRigidBody(ground_pose);
     ground_body->setType(rp3d::BodyType::STATIC);
     auto ground_shape = new rp3d::HeightFieldShape(7, 7, min_height, max_height, ground_heights, rp3d::HeightFieldShape::HeightDataType::HEIGHT_FLOAT_TYPE);
@@ -225,8 +284,60 @@ void setup_scene() {
     ground_mat.setBounciness(rp3d::decimal(0.1));
     ground_mat.setFrictionCoefficient(rp3d::decimal(0.0001));
 
+    vector<float> ground_vertices = {};
+    vector<int> ground_elements = {};
+    // loop over ground_heights, processing a quad at a time
+    for (int ghy=0 ; ghy<GH_HEIGHT-1 ; ghy+=1) {
+        float y = float(ghy) - float(GH_HEIGHT/2);
+        float cy = y + 0.5;
+        for (int ghx=0 ; ghx<GH_WIDTH-1 ; ghx+=1) {
+            float x = float(ghx) - float(GH_WIDTH/2);
+            float cx = x + 0.5;
+
+            float ch = 0.0;
+            for (int ix=0 ; ix<2 ; ix+=1) {
+                for (int iy=0 ; iy<2 ; iy+=1) {
+                    ch += ground_heights[ghy + iy][ghx + ix];
+                }
+            }
+            ch /= 4.0;
+
+            int elem = ground_vertices.size() / 3;
+
+            add_point(ground_vertices, glm::vec3(cx, ch, cy));
+            add_point(ground_vertices, glm::vec3(x, ground_heights[ghy][ghx], y));
+            add_point(ground_vertices, glm::vec3(x+1, ground_heights[ghy][ghx+1], y));
+            add_point(ground_vertices, glm::vec3(x+1, ground_heights[ghy+1][ghx+1], y+1));
+            add_point(ground_vertices, glm::vec3(x, ground_heights[ghy+1][ghx], y+1));
+
+            for (int n=1 ; n<=3 ; n+=1) {
+                ground_elements.push_back(elem);
+                ground_elements.push_back(elem+n);
+                ground_elements.push_back(elem+n+1);
+            }
+            ground_elements.push_back(elem);
+            ground_elements.push_back(elem+4);
+            ground_elements.push_back(elem+1);
+        }
+    }
+    glGenVertexArrays(1, & ground_vao);
+    GLuint gvbo;
+    glGenBuffers(1, & gvbo);
+    glBindVertexArray(ground_vao);
+    glBindBuffer(GL_ARRAY_BUFFER, gvbo);
+    glBufferData(GL_ARRAY_BUFFER, ground_vertices.size() * sizeof(float), & ground_vertices[0], GL_STATIC_DRAW);
+
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3*sizeof(float), nullptr);
+    glEnableVertexAttribArray(0);
+
+    GLuint gebo;
+    glGenBuffers(1, & gebo);
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, gebo);
+    ground_nverts = ground_elements.size();
+    glBufferData(GL_ELEMENT_ARRAY_BUFFER, ground_nverts * sizeof(float), & ground_elements[0], GL_STATIC_DRAW);
+
     // marble sphere
-    rp3d::Transform marble_pose(rp3d::Vector3(-0.5, 1.5, -1.0), rp3d::Quaternion::identity());
+    rp3d::Transform marble_pose(rp3d::Vector3(-0.5, 3.5, -1.0), rp3d::Quaternion::identity());
     marble_body = world->createRigidBody(marble_pose);
     auto marble_shape = new rp3d::SphereShape(0.5);
     marble_body->addCollisionShape(marble_shape, rp3d::Transform(), 1.0);
@@ -273,11 +384,42 @@ void physics_step(float dt) {
 }
 
 void draw_scene() {
+    // camera view pose
+    auto view = glm::lookAt(glm::vec3(0,3,-5), glm::vec3(0,0,0), glm::vec3(0,1,0));
+
     // background color
     glClearColor(0.2, 0.3, 0.3, 1.0);
     glEnable(GL_DEPTH_TEST);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
+    // ground heightfield
+    // set up uniform values
+    glUseProgram(groundShaderProgram);
+    unsigned int g_projectionLoc = glGetUniformLocation(groundShaderProgram, "projection");
+    unsigned int g_viewLoc = glGetUniformLocation(groundShaderProgram, "view");
+    unsigned int g_lightPosLoc = glGetUniformLocation(groundShaderProgram, "lightPos");
+    unsigned int g_lightColorLoc = glGetUniformLocation(groundShaderProgram, "lightColor");
+
+    auto g_projection = glm::perspective(glm::radians(90.0f), 1.0f, 0.1f, 100.0f);
+    glUniformMatrix4fv(g_projectionLoc, 1, GL_FALSE, glm::value_ptr(g_projection));
+
+    glUniformMatrix4fv(g_viewLoc, 1, GL_FALSE, glm::value_ptr(view));
+
+    glUniform3f(g_lightPosLoc, 1.0, 1.0, -1.0);
+    glUniform3f(g_lightColorLoc, 1.0, 1.0, 1.0);
+
+    // draw
+    auto g_model = glm::mat4(1.0f);
+    unsigned int g_modelLoc = glGetUniformLocation(groundShaderProgram, "model");
+    glUniformMatrix4fv(g_modelLoc, 1, GL_FALSE, glm::value_ptr(g_model));
+    unsigned int g_objectColorLoc = glGetUniformLocation(groundShaderProgram, "objectColor");
+    glm::vec3 g_color = {0.0, 1.0, 1.0};
+    glUniform3fv(g_objectColorLoc, 1, glm::value_ptr(g_color));
+
+    glBindVertexArray(ground_vao);
+    glDrawElements(GL_TRIANGLES, ground_nverts, GL_UNSIGNED_INT, 0);
+
+    // marble sphere
     // set up uniform values
     glUseProgram(marbleShaderProgram);
     unsigned int projectionLoc = glGetUniformLocation(marbleShaderProgram, "projection");
@@ -288,14 +430,12 @@ void draw_scene() {
     auto projection = glm::perspective(glm::radians(90.0f), 1.0f, 0.1f, 100.0f);
     glUniformMatrix4fv(projectionLoc, 1, GL_FALSE, glm::value_ptr(projection));
 
-    auto view = glm::mat4(1.0f);
-    view = glm::translate(view, glm::vec3(0.0, 0.0, -4.0));
     glUniformMatrix4fv(viewLoc, 1, GL_FALSE, glm::value_ptr(view));
 
     glUniform3f(lightPosLoc, 1.0, 1.0, -1.0);
     glUniform3f(lightColorLoc, 1.0, 1.0, 1.0);
 
-    // marble sphere
+    // draw
     auto model = glm::mat4(1.0f);
     auto marble_tran = marble_body->getTransform();
 
@@ -304,6 +444,7 @@ void draw_scene() {
     marble_pos.x = tempv.x;
     marble_pos.y = tempv.y;
     marble_pos.z = tempv.z;
+    //cout << marble_pos.x << ',' << marble_pos.y << ',' << marble_pos.z << endl;
     model = glm::translate(model, marble_pos);
     model = glm::translate(model, glm::vec3(-0.5, -0.5, 0));
     unsigned int modelLoc = glGetUniformLocation(marbleShaderProgram, "model");
@@ -314,11 +455,8 @@ void draw_scene() {
     for (int y=0 ; y<3 ; y+=1) {
         for (int x=0 ; x<3 ; x+=1) {
             marble_rot[y][x] = tempm[y][x];
-            cout << marble_rot[y][x] << ' ';
         }
-        cout << endl;
     }
-    cout << endl;
     unsigned int obj_rotationLoc = glGetUniformLocation(marbleShaderProgram, "obj_rotation");
     glUniformMatrix3fv(obj_rotationLoc, 1, GL_FALSE, glm::value_ptr(marble_rot));
 

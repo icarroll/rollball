@@ -105,12 +105,11 @@ void mainImage( out vec4 fragColor, in vec2 fragCoord )
     vec2 p = -1.0 + 2.0 * q;
     p.x *= iResolution.x/iResolution.y;
     vec2 m = vec2(0.);
-    //if( iMouse.z>0.0 )m = iMouse.xy/iResolution.xy*3.14;
     m-=.5;
 
     // camera
     vec3 ro = zoom*vec3(4.);
-    ro = obj_rotation * ro;
+    ro = obj_rotation * ro; //TODO fix camera orientation
     /*
     ro.yz*=rot(m.y + time);
     ro.xz*=rot(m.x + time);
