@@ -493,6 +493,7 @@ int main(int nargs, char * args[])
     FRAME_TICK = SDL_RegisterEvents(1);
     SDL_AddTimer(20, timer_callback, NULL);
 
+    bool go = false;
     bool done = false;
     while (! done)
     {
@@ -501,7 +502,7 @@ int main(int nargs, char * args[])
 
         if (e.type == SDL_QUIT) done = true;
         else if (e.type == FRAME_TICK) {
-            physics_step(20.0/1000.0); // step forward 20msec
+            if (go) physics_step(20.0/1000.0); // step forward 20msec
 
             draw_scene();
             SDL_GL_SwapWindow(gWindow);
@@ -509,6 +510,7 @@ int main(int nargs, char * args[])
             frame += 1;
             SDL_FlushEvent(FRAME_TICK); // don't pile up frame ticks
         }
+        else if (e.type == SDL_KEYDOWN && e.key.keysym.sym == SDLK_SPACE) go = true;
     }
 
     close();
