@@ -96,13 +96,45 @@ void setup_shaders() {
         "layout (location = 1) in vec3 aNormal;\n"
         "out vec3 FragPos;\n"
         "out vec3 Normal;\n"
+        "uniform vec3 camera_pos;\n"
+        "uniform vec3 up_vector;\n"
+        "uniform vec3 obj_pos;\n"
         "uniform mat4 projection;\n"
         "uniform mat4 view;\n"
         "uniform mat4 model;\n"
+        "mat4 rotationMatrix(vec3 axis, float angle)\n"
+        "{\n"
+        "  axis = normalize(axis);\n"
+        "  float s = sin(angle);\n"
+        "  float c = cos(angle);\n"
+        "  float oc = 1.0 - c;\n"
+        "\n"
+        "  return mat4(oc * axis.x * axis.x + c,           oc * axis.x * axis.y - axis.z * s,  oc * axis.z * axis.x + axis.y * s,  0.0,\n"
+        "              oc * axis.x * axis.y + axis.z * s,  oc * axis.y * axis.y + c,           oc * axis.y * axis.z - axis.x * s,  0.0,\n"
+        "              oc * axis.z * axis.x - axis.y * s,  oc * axis.y * axis.z + axis.x * s,  oc * axis.z * axis.z + c,           0.0,\n"
+        "              0.0,                                0.0,                                0.0,                                1.0);\n"
+        "}\n"
         "void main() {\n"
         "  FragPos = aPos;\n"
         "  Normal = mat3(transpose(inverse(model))) * aNormal;\n"
-        "  gl_Position = projection * view * model * vec4(aPos, 1.0);\n"
+
+        "  vec3 look = normalize(obj_pos - camera_pos);\n"
+        "  vec3 rot_axis = cross(look, normalize(aNormal));\n"
+        "  float rot_angle = asin(length(rot_axis));\n"
+        "  mat4 billboard = rotationMatrix(rot_axis, rot_angle);\n"
+        "  gl_Position = projection * view * model * billboard * vec4(aPos, 1.0);\n"
+
+        /*
+        "  mat4 ft = view * model;\n"
+        "  float s = length(ft * vec4(1,0,0,0));\n"
+        "  ft[0] = vec4(s,0,0,ft[0][3]);\n"
+        "  ft[1] = vec4(0,s,0,ft[1][3]);\n"
+        "  ft[2] = vec4(0,0,s,ft[2][3]);\n"
+        "  gl_Position = projection * ft * vec4(aPos, 1.0);\n"
+        */
+
+        //"  gl_Position = projection * view * model * vec4(aPos, 1.0);\n"
+        //"  gl_Position = projection * model * vec4(aPos, 1.0);\n"
         "}";
     unsigned int vertexShader;
     vertexShader = glCreateShader(GL_VERTEX_SHADER);
@@ -269,6 +301,8 @@ int ground_nverts;
 
 GLuint marble_vao;
 
+const float SIZE = 1.0; //TODO doesn't actually work properly
+
 void setup_scene() {
     // gravity and world
     rp3d::Vector3 gravity(0.0, -9.81, 0.0);
@@ -281,8 +315,8 @@ void setup_scene() {
     auto ground_shape = new rp3d::HeightFieldShape(7, 7, min_height, max_height, ground_heights, rp3d::HeightFieldShape::HeightDataType::HEIGHT_FLOAT_TYPE);
     ground_body->addCollisionShape(ground_shape, rp3d::Transform(), 1.0);
     auto ground_mat = ground_body->getMaterial();
-    ground_mat.setBounciness(rp3d::decimal(0.1));
-    ground_mat.setFrictionCoefficient(rp3d::decimal(0.0001));
+    ground_mat.setBounciness(rp3d::decimal(0.9));
+    ground_mat.setFrictionCoefficient(rp3d::decimal(0.5));
 
     vector<float> ground_vertices = {};
     vector<int> ground_elements = {};
@@ -339,17 +373,17 @@ void setup_scene() {
     // marble sphere
     rp3d::Transform marble_pose(rp3d::Vector3(-0.5, 3.5, -1.0), rp3d::Quaternion::identity());
     marble_body = world->createRigidBody(marble_pose);
-    auto marble_shape = new rp3d::SphereShape(0.5);
+    auto marble_shape = new rp3d::SphereShape(SIZE/2.0);
     marble_body->addCollisionShape(marble_shape, rp3d::Transform(), 1.0);
     auto marble_mat = marble_body->getMaterial();
-    marble_mat.setBounciness(rp3d::decimal(0.1));
-    marble_mat.setFrictionCoefficient(rp3d::decimal(0.0001));
+    marble_mat.setBounciness(rp3d::decimal(0.9));
+    marble_mat.setFrictionCoefficient(rp3d::decimal(0.5));
 
     float vertices[] = {
-        0.0,0.0,0.0, 0.0,0.0,1.0,
-        1.0,0.0,0.0, 0.0,0.0,1.0,
-        1.0,1.0,0.0, 0.0,0.0,1.0,
-        0.0,1.0,0.0, 0.0,0.0,1.0
+        0.0, 0.0, 0.0, 0.0,0.0,1.0,
+        SIZE,0.0, 0.0, 0.0,0.0,1.0,
+        SIZE,SIZE,0.0, 0.0,0.0,1.0,
+        0.0, SIZE,0.0, 0.0,0.0,1.0
     };
     glGenVertexArrays(1, & marble_vao);
     GLuint vbo;
@@ -384,40 +418,19 @@ void physics_step(float dt) {
 }
 
 void draw_scene() {
-    // camera view pose
-    auto view = glm::lookAt(glm::vec3(0,3,-5), glm::vec3(0,0,0), glm::vec3(0,1,0));
+    // camera setup
+    auto camera_pos = glm::vec3(0,3,-5);
+    auto scene_center = glm::vec3(0,0,0);
+    auto up_vector = glm::vec3(0,1,0);
+    auto view = glm::lookAt(camera_pos, scene_center, up_vector);
+
+    auto projection = glm::perspective(glm::radians(90.0f), 1.0f, 0.1f, 100.0f);
+    //auto projection = glm::ortho(-4.0f, 4.0f, -4.0f, 4.0f, 0.1f, 100.0f);
 
     // background color
     glClearColor(0.2, 0.3, 0.3, 1.0);
     glEnable(GL_DEPTH_TEST);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-
-    // ground heightfield
-    // set up uniform values
-    glUseProgram(groundShaderProgram);
-    unsigned int g_projectionLoc = glGetUniformLocation(groundShaderProgram, "projection");
-    unsigned int g_viewLoc = glGetUniformLocation(groundShaderProgram, "view");
-    unsigned int g_lightPosLoc = glGetUniformLocation(groundShaderProgram, "lightPos");
-    unsigned int g_lightColorLoc = glGetUniformLocation(groundShaderProgram, "lightColor");
-
-    auto g_projection = glm::perspective(glm::radians(90.0f), 1.0f, 0.1f, 100.0f);
-    glUniformMatrix4fv(g_projectionLoc, 1, GL_FALSE, glm::value_ptr(g_projection));
-
-    glUniformMatrix4fv(g_viewLoc, 1, GL_FALSE, glm::value_ptr(view));
-
-    glUniform3f(g_lightPosLoc, 1.0, 1.0, -1.0);
-    glUniform3f(g_lightColorLoc, 1.0, 1.0, 1.0);
-
-    // draw
-    auto g_model = glm::mat4(1.0f);
-    unsigned int g_modelLoc = glGetUniformLocation(groundShaderProgram, "model");
-    glUniformMatrix4fv(g_modelLoc, 1, GL_FALSE, glm::value_ptr(g_model));
-    unsigned int g_objectColorLoc = glGetUniformLocation(groundShaderProgram, "objectColor");
-    glm::vec3 g_color = {0.0, 1.0, 1.0};
-    glUniform3fv(g_objectColorLoc, 1, glm::value_ptr(g_color));
-
-    glBindVertexArray(ground_vao);
-    glDrawElements(GL_TRIANGLES, ground_nverts, GL_UNSIGNED_INT, 0);
 
     // marble sphere
     // set up uniform values
@@ -427,7 +440,6 @@ void draw_scene() {
     unsigned int lightPosLoc = glGetUniformLocation(marbleShaderProgram, "lightPos");
     unsigned int lightColorLoc = glGetUniformLocation(marbleShaderProgram, "lightColor");
 
-    auto projection = glm::perspective(glm::radians(90.0f), 1.0f, 0.1f, 100.0f);
     glUniformMatrix4fv(projectionLoc, 1, GL_FALSE, glm::value_ptr(projection));
 
     glUniformMatrix4fv(viewLoc, 1, GL_FALSE, glm::value_ptr(view));
@@ -435,8 +447,12 @@ void draw_scene() {
     glUniform3f(lightPosLoc, 1.0, 1.0, -1.0);
     glUniform3f(lightColorLoc, 1.0, 1.0, 1.0);
 
-    // draw
-    auto model = glm::mat4(1.0f);
+    // draw marble
+    unsigned int camera_posLoc = glGetUniformLocation(marbleShaderProgram, "camera_pos");
+    glUniform3f(camera_posLoc, camera_pos.x, camera_pos.y, camera_pos.z);
+    unsigned int up_vectorLoc = glGetUniformLocation(marbleShaderProgram, "up_vector");
+    glUniform3f(up_vectorLoc, up_vector.x, up_vector.y, up_vector.z);
+
     auto marble_tran = marble_body->getTransform();
 
     rp3d::Vector3 tempv = marble_tran.getPosition();
@@ -444,9 +460,12 @@ void draw_scene() {
     marble_pos.x = tempv.x;
     marble_pos.y = tempv.y;
     marble_pos.z = tempv.z;
+    unsigned int obj_posLoc = glGetUniformLocation(marbleShaderProgram, "obj_pos");
+    glUniform3fv(obj_posLoc, 1, glm::value_ptr(marble_pos));
     //cout << marble_pos.x << ',' << marble_pos.y << ',' << marble_pos.z << endl;
+    auto model = glm::mat4(1.0f);
     model = glm::translate(model, marble_pos);
-    model = glm::translate(model, glm::vec3(-0.5, -0.5, 0));
+    model = glm::translate(model, glm::vec3(-0.5*SIZE, -0.5*SIZE, 0));
     unsigned int modelLoc = glGetUniformLocation(marbleShaderProgram, "model");
     glUniformMatrix4fv(modelLoc, 1, GL_FALSE, glm::value_ptr(model));
 
@@ -460,6 +479,7 @@ void draw_scene() {
     unsigned int obj_rotationLoc = glGetUniformLocation(marbleShaderProgram, "obj_rotation");
     glUniformMatrix3fv(obj_rotationLoc, 1, GL_FALSE, glm::value_ptr(marble_rot));
 
+    // color is ignored for this fragment shader
     unsigned int objectColorLoc = glGetUniformLocation(marbleShaderProgram, "objectColor");
     glm::vec3 color = {0.0, 1.0, 1.0};
     glUniform3fv(objectColorLoc, 1, glm::value_ptr(color));
@@ -469,6 +489,39 @@ void draw_scene() {
 
     glBindVertexArray(marble_vao);
     glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0);
+
+#if 1
+    // ground heightfield
+    // set up uniform values
+    glUseProgram(groundShaderProgram);
+    unsigned int g_projectionLoc = glGetUniformLocation(groundShaderProgram, "projection");
+    unsigned int g_viewLoc = glGetUniformLocation(groundShaderProgram, "view");
+    unsigned int g_lightPosLoc = glGetUniformLocation(groundShaderProgram, "lightPos");
+    unsigned int g_lightColorLoc = glGetUniformLocation(groundShaderProgram, "lightColor");
+
+    glUniformMatrix4fv(g_projectionLoc, 1, GL_FALSE, glm::value_ptr(projection));
+
+    glUniformMatrix4fv(g_viewLoc, 1, GL_FALSE, glm::value_ptr(view));
+
+    glUniform3f(g_lightPosLoc, 1.0, 1.0, -1.0);
+    glUniform3f(g_lightColorLoc, 1.0, 1.0, 1.0);
+
+    unsigned int sphere_posLoc = glGetUniformLocation(groundShaderProgram, "sphere_pos");
+    glUniform3fv(sphere_posLoc, 1, glm::value_ptr(marble_pos));
+    unsigned int sphere_rLoc = glGetUniformLocation(groundShaderProgram, "sphere_r");
+    glUniform1f(sphere_rLoc, SIZE/2.0);
+
+    // draw ground
+    auto g_model = glm::mat4(1.0f);
+    unsigned int g_modelLoc = glGetUniformLocation(groundShaderProgram, "model");
+    glUniformMatrix4fv(g_modelLoc, 1, GL_FALSE, glm::value_ptr(g_model));
+    unsigned int g_objectColorLoc = glGetUniformLocation(groundShaderProgram, "objectColor");
+    glm::vec3 g_color = {0.0, 1.0, 1.0};
+    glUniform3fv(g_objectColorLoc, 1, glm::value_ptr(g_color));
+
+    glBindVertexArray(ground_vao);
+    glDrawElements(GL_TRIANGLES, ground_nverts, GL_UNSIGNED_INT, 0);
+#endif
 }
 
 unsigned int FRAME_TICK;
@@ -510,7 +563,8 @@ int main(int nargs, char * args[])
             frame += 1;
             SDL_FlushEvent(FRAME_TICK); // don't pile up frame ticks
         }
-        else if (e.type == SDL_KEYDOWN && e.key.keysym.sym == SDLK_SPACE) go = true;
+        else if (e.type == SDL_KEYDOWN
+                 && e.key.keysym.sym == SDLK_SPACE) go = true;
     }
 
     close();

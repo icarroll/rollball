@@ -26,6 +26,7 @@
 
 // License Creative Commons Attribution-NonCommercial-ShareAlike 3.0 Unported License.
 // Created by S. Guillitte 2015
+// Modified by Isaac Carroll 2019
 
 out vec4 FragColor;
 in vec3 FragPos;
@@ -43,7 +44,9 @@ vec3 envcolor = vec3(0.2, 0.3, 0.3);
 uniform float iTime;
 uniform mat3 obj_rotation;
 
-float zoom=1.;
+//float zoom=1.;
+float size = 1.0; //TODO doesn't actually work properly
+float zoom=sqrt(4*4+4*4+4*4)/size;
 
 vec2 cmul( vec2 a, vec2 b )  { return vec2( a.x*b.x - a.y*b.y, a.x*b.y + a.y*b.x ); }
 vec2 csqr( vec2 a )  { return vec2( a.x*a.x - a.y*a.y, 2.*a.x*a.y  ); }
@@ -52,10 +55,10 @@ mat2 rot(float a) {
     return mat2(cos(a),sin(a),-sin(a),cos(a));
 }
 
-vec2 iSphere( in vec3 ro, in vec3 rd, in vec4 sph )//from iq
+vec2 iSphere( in vec3 ray_origin, in vec3 ray_dest, in vec4 sph )//from iq
 {
-    vec3 oc = ro - sph.xyz;
-    float b = dot( oc, rd );
+    vec3 oc = ray_origin - sph.xyz;
+    float b = dot( oc, ray_dest );
     float c = dot( oc, oc ) - sph.w*sph.w;
     float h = b*b - c;
     if( h<0.0 ) return vec2(-1.0);
@@ -77,7 +80,7 @@ float map(in vec3 p) {
     return res/2.;
 }
 
-vec3 raymarch( in vec3 ro, vec3 rd, vec2 tminmax )
+vec3 raymarch( in vec3 ray_origin, vec3 ray_dest, vec2 tminmax )
 {
     float t = tminmax.x;
     float dt = .1;
@@ -89,8 +92,8 @@ vec3 raymarch( in vec3 ro, vec3 rd, vec2 tminmax )
         t+=dt*exp(-2.*c);
         if(t>tminmax.y)break;
 
-        vec3 pos = ro+t*rd;
-        c = map(ro+t*rd);
+        vec3 pos = ray_origin+t*ray_dest;
+        c = map(ray_origin+t*ray_dest);
 
         //col = .99*col+ .08*vec3(c*c, c, c*c*c);//green
         col = .99*col+ .08*vec3(c*c*c, c*c, c);//blue
@@ -108,29 +111,31 @@ void mainImage( out vec4 fragColor, in vec2 fragCoord )
     m-=.5;
 
     // camera
-    vec3 ro = zoom*vec3(4.);
-    ro = obj_rotation * ro; //TODO fix camera orientation
-    /*
-    ro.yz*=rot(m.y + time);
-    ro.xz*=rot(m.x + time);
-    */
-    vec3 ta = vec3( 0.0 , 0.0, 0.0 );
-    vec3 ww = normalize( ta - ro );
-    vec3 uu = normalize( cross(ww,vec3(0.0,1.0,0.0) ) );
-    vec3 vv = normalize( cross(uu,ww));
-    vec3 rd = normalize( p.x*uu + p.y*vv + 4.0*ww )*0.975;
+    vec3 ray_origin = zoom * vec3(0,0,-1);
+    ray_origin = obj_rotation * ray_origin;
+    vec3 center = vec3( 0.0 , 0.0, 0.0 );
+    vec3 uu = obj_rotation * vec3(1,0,0);
+    vec3 vv = obj_rotation * vec3(0,1,0);
+    vec3 ww = normalize(center - ray_origin);
+    vec3 ray_dest = normalize( p.x*uu + p.y*vv + 4.0*ww )*0.975;
 
-
-    vec2 tmm = iSphere( ro, rd, vec4(0.,0.,0.,2.) );
+    vec2 tmm = iSphere( ray_origin, ray_dest, vec4(0.,0.,0.,2.) );
 
     // raymarch
-    vec3 col = raymarch(ro,rd,tmm);
-    //if (tmm.x<0.)col = texture(iChannel0, rd).rgb;
+    vec3 col = raymarch(ray_origin,ray_dest,tmm);
+    //if (tmm.x<0.)col = texture(iChannel0, ray_dest).rgb;
+    /*
+    // temp: draw border of the quad
+    if (tmm.x<0.) {
+        if (q.x < 0.01 || q.x > 0.99 || q.y < 0.01 || q.y > 0.99) {}
+        else discard;
+    }
+    */
     if (tmm.x<0.) discard;
     else {
-        vec3 nor=(ro+tmm.x*rd)/2.;
-        nor = reflect(rd, nor);
-        float fre = pow(.5+ clamp(dot(nor,rd),0.0,1.0), 3. )*1.3;
+        vec3 nor=(ray_origin+tmm.x*ray_dest)/2.;
+        nor = reflect(ray_dest, nor);
+        float fre = pow(.5+ clamp(dot(nor,ray_dest),0.0,1.0), 3. )*1.3;
         //col += texture(iChannel0, nor).rgb * fre;
         col += envcolor * fre;
     }
@@ -139,6 +144,7 @@ void mainImage( out vec4 fragColor, in vec2 fragCoord )
     col =  .5 *(log(1.+col));
     col = clamp(col,0.,1.);
     fragColor = vec4( col, 1.0 );
+    gl_FragDepth = gl_FragCoord.z - tmm.x; // trying to spherize the z-buffer
 }
 
 void main() {
