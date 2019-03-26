@@ -117,7 +117,8 @@ void mainImage( out vec4 fragColor, in vec2 fragCoord )
     vec3 uu = obj_rotation * vec3(1,0,0);
     vec3 vv = obj_rotation * vec3(0,1,0);
     vec3 ww = normalize(center - ray_origin);
-    vec3 ray_dest = normalize( p.x*uu + p.y*vv + 4.0*ww )*0.975;
+    //vec3 ray_dest = normalize( p.x*uu + p.y*vv + 4.0*ww )*0.975;
+    vec3 ray_dest = normalize( p.x*uu + p.y*vv + 4.0*ww )*0.985;
 
     vec2 tmm = iSphere( ray_origin, ray_dest, vec4(0.,0.,0.,2.) );
 

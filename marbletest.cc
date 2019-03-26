@@ -67,6 +67,7 @@ void init() {
     glewExperimental = GL_TRUE; 
     GLenum glewError = glewInit();
     if (glewError != GLEW_OK) die("glew");
+    if (! GLEW_VERSION_2_1) die("glew2.1");
 
     glEnable(GL_DEBUG_OUTPUT);
     glDebugMessageCallback(MessageCallback, 0);
@@ -153,12 +154,12 @@ void setup_shaders() {
     const char * ground_vertex_shader_code =
         "#version 330 core\n"
         "layout (location = 0) in vec3 aPos;\n"
-        "out vec3 FragPos;\n"
+        "out vec3 thingPos;\n"
         "uniform mat4 projection;\n"
         "uniform mat4 view;\n"
         "uniform mat4 model;\n"
         "void main() {\n"
-        "  FragPos = aPos;\n"
+        "  thingPos = aPos;\n"
         "  gl_Position = projection * view * model * vec4(aPos, 1.0);\n"
         "}";
     unsigned int ground_vertexShader;
@@ -419,13 +420,19 @@ void physics_step(float dt) {
 
 void draw_scene() {
     // camera setup
+    auto projection = glm::perspective(glm::radians(90.0f), 1.0f, 0.1f, 100.0f);
+    //auto projection = glm::ortho(-4.0f, 4.0f, -4.0f, 4.0f, 0.1f, 100.0f);
+
     auto camera_pos = glm::vec3(0,3,-5);
     auto scene_center = glm::vec3(0,0,0);
     auto up_vector = glm::vec3(0,1,0);
     auto view = glm::lookAt(camera_pos, scene_center, up_vector);
 
-    auto projection = glm::perspective(glm::radians(90.0f), 1.0f, 0.1f, 100.0f);
-    //auto projection = glm::ortho(-4.0f, 4.0f, -4.0f, 4.0f, 0.1f, 100.0f);
+    // light setup
+    //float ang = frame / 50.0 * M_PI;
+    //auto light_pos = glm::vec3(10.0 * cos(ang), 10.0, 10.0 * sin(ang));
+    auto light_pos = glm::vec3(0.0, 3.0, 0.0);
+    auto light_color = glm::vec3(0.7, 0.7, 0.7);
 
     // background color
     glClearColor(0.2, 0.3, 0.3, 1.0);
@@ -444,8 +451,12 @@ void draw_scene() {
 
     glUniformMatrix4fv(viewLoc, 1, GL_FALSE, glm::value_ptr(view));
 
-    glUniform3f(lightPosLoc, 1.0, 1.0, -1.0);
-    glUniform3f(lightColorLoc, 1.0, 1.0, 1.0);
+    //glUniform3f(lightPosLoc, 1.0, 1.0, -1.0);
+    glUniform3fv(lightPosLoc, 1, glm::value_ptr(light_pos));
+    glUniform3fv(lightColorLoc, 1, glm::value_ptr(light_color));
+
+    unsigned int cameraPosLoc = glGetUniformLocation(marbleShaderProgram, "cameraPos");
+    glUniform3fv(cameraPosLoc, 1, glm::value_ptr(camera_pos));
 
     // draw marble
     unsigned int camera_posLoc = glGetUniformLocation(marbleShaderProgram, "camera_pos");
@@ -503,8 +514,8 @@ void draw_scene() {
 
     glUniformMatrix4fv(g_viewLoc, 1, GL_FALSE, glm::value_ptr(view));
 
-    glUniform3f(g_lightPosLoc, 1.0, 1.0, -1.0);
-    glUniform3f(g_lightColorLoc, 1.0, 1.0, 1.0);
+    glUniform3fv(g_lightPosLoc, 1, glm::value_ptr(light_pos));
+    glUniform3fv(g_lightColorLoc, 1, glm::value_ptr(light_color));
 
     unsigned int sphere_posLoc = glGetUniformLocation(groundShaderProgram, "sphere_pos");
     glUniform3fv(sphere_posLoc, 1, glm::value_ptr(marble_pos));
@@ -534,8 +545,7 @@ uint32_t timer_callback(uint32_t interval, void * param) {
     return interval;
 }
 
-int main(int nargs, char * args[])
-{
+int main(int nargs, char * args[]) {
     init();
 
     setup_shaders();
@@ -563,8 +573,10 @@ int main(int nargs, char * args[])
             frame += 1;
             SDL_FlushEvent(FRAME_TICK); // don't pile up frame ticks
         }
-        else if (e.type == SDL_KEYDOWN
-                 && e.key.keysym.sym == SDLK_SPACE) go = true;
+        else if (e.type == SDL_KEYDOWN) {
+            if (e.key.keysym.sym == SDLK_SPACE) go = true;
+            else if (e.key.keysym.sym == SDLK_q) done = true;
+        }
     }
 
     close();
