@@ -1,5 +1,6 @@
 #include <fstream>
 #include <iostream>
+#include <set>
 #include <vector>
 
 #include <glm/glm.hpp>
@@ -461,27 +462,31 @@ void setup_scene() {
     */
 }
 
+set<SDL_Keycode> keys_down;
+
 int frame = 0;
 
 float time_step = 1.0 / 1000.0;
 void physics_step(float dt) {
+    // process keys
+    rp3d::Vector3 torque(0,0,0);
+    if (keys_down.count(SDLK_w)) torque += rp3d::Vector3(1,0,0);
+    if (keys_down.count(SDLK_a)) torque += rp3d::Vector3(0,0,-1);
+    if (keys_down.count(SDLK_s)) torque += rp3d::Vector3(-1,0,0);
+    if (keys_down.count(SDLK_d)) torque += rp3d::Vector3(0,0,1);
+    torque = torque.getUnit();
+
     for (float n=0 ; n<dt ; n+=time_step) {
+        marble_body->applyTorque(torque);
         world->update(time_step);
     }
-}
 
-void gravity_left() {
-    rp3d::Vector3 g = rp3d::Quaternion::fromEulerAngles(0,0,0.2) * gravity;
-    world->setGravity(g);
-}
-
-void gravity_right() {
-    rp3d::Vector3 g = rp3d::Quaternion::fromEulerAngles(0,0,-0.2) * gravity;
-    world->setGravity(g);
-}
-
-void gravity_down() {
-    world->setGravity(gravity);
+    rp3d::Transform t = marble_body->getTransform();
+    if (t.getPosition().y < -10.0) {
+        t.setPosition(rp3d::Vector3(0,3,0));
+        marble_body->setTransform(t);
+        marble_body->setLinearVelocity(rp3d::Vector3(0,0,0));
+    }
 }
 
 void draw_scene() {
@@ -490,9 +495,9 @@ void draw_scene() {
     //auto projection = glm::ortho(-4.0f, 4.0f, -4.0f, 4.0f, 0.1f, 100.0f);
 
     //auto camera_pos = glm::vec3(0,3,-5);
-    glm::vec3 camera_pos = glm::rotateY(glm::vec3(0,3,-5), glm::radians((float) frame/5.0f));
+    //glm::vec3 camera_pos = glm::rotateY(glm::vec3(0,3,-5), glm::radians((float) frame/5.0f));
     //glm::vec3 camera_pos = glm::rotateY(glm::vec3(0,3,-5), glm::radians(0.0f + cos(glm::radians((float) frame))));
-    //glm::vec3 camera_pos = glm::rotateY(glm::vec3(0,3,-5), glm::radians(45.0f));
+    glm::vec3 camera_pos = glm::rotateY(glm::vec3(0,3,-5), glm::radians(5.0f));
     auto scene_center = glm::vec3(0,0,0);
     auto up_vector = glm::vec3(0,1,0);
     auto view = glm::lookAt(camera_pos, scene_center, up_vector);
@@ -673,10 +678,9 @@ int main(int nargs, char * args[]) {
         else if (e.type == SDL_KEYDOWN) {
             if (e.key.keysym.sym == SDLK_SPACE) go = true;
             else if (e.key.keysym.sym == SDLK_q) done = true;
-            else if (e.key.keysym.sym == SDLK_a) gravity_left();
-            else if (e.key.keysym.sym == SDLK_d) gravity_right();
-            else if (e.key.keysym.sym == SDLK_x) gravity_down();
+            else keys_down.insert(e.key.keysym.sym);
         }
+	else if (e.type == SDL_KEYUP) keys_down.erase(e.key.keysym.sym);
     }
 
     close();
