@@ -11,6 +11,8 @@
 #include <glm/gtx/rotate_vector.hpp>
 
 #include "reactphysics3d.h"
+#include "collision/ContactManifold.h"
+#include "constraint/ContactPoint.h"
 
 extern "C" {
 #include <SDL.h>
@@ -320,13 +322,13 @@ void add_point(vector<float> & values, glm::vec3 point) {
 float min_height = 0.0;
 float max_height = 1.0;
 // column-major order
-const int GH_HEIGHT = 7;
+const int GH_LENGTH = 7;
 const int GH_WIDTH = 7;
-float ground_heights[GH_HEIGHT][GH_WIDTH] = {
+float ground_heights[GH_LENGTH][GH_WIDTH] = {
     {0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5},
     {0.5, 0.0, 0.0, 0.0, 0.0, 0.0, 0.5},
-    {0.5, 0.0, 1.0, 0.0, 0.0, 0.0, 0.5},
-    {0.5, 0.0, 0.0, 0.0, 0.0, 0.0, 0.5},
+    {0.5, 0.0, 1.0, 1.0, 0.0, 0.0, 0.5},
+    {0.5, 0.0, 1.0, 1.0, 0.0, 0.0, 0.5},
     {0.5, 0.0, 0.0, 0.0, 1.0, 0.0, 0.5},
     {0.5, 0.0, 0.0, 0.0, 0.0, 0.0, 0.5},
     {0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5},
@@ -350,10 +352,10 @@ void setup_scene() {
     world = new rp3d::DynamicsWorld(gravity);
 
     // ground heightfield
-    rp3d::Transform ground_pose(rp3d::Vector3(0, 0.5, 0), rp3d::Quaternion::identity());
+    rp3d::Transform ground_pose(rp3d::Vector3(0, (min_height + max_height)/2.0, 0), rp3d::Quaternion::identity());
     ground_body = world->createRigidBody(ground_pose);
     ground_body->setType(rp3d::BodyType::STATIC);
-    auto ground_shape = new rp3d::HeightFieldShape(7, 7, min_height, max_height, ground_heights, rp3d::HeightFieldShape::HeightDataType::HEIGHT_FLOAT_TYPE);
+    auto ground_shape = new rp3d::HeightFieldShape(GH_LENGTH, GH_WIDTH, min_height, max_height, ground_heights, rp3d::HeightFieldShape::HeightDataType::HEIGHT_FLOAT_TYPE);
     ground_body->addCollisionShape(ground_shape, rp3d::Transform(), 1.0);
     auto ground_mat = ground_body->getMaterial();
     ground_mat.setBounciness(rp3d::decimal(0.9));
@@ -362,8 +364,8 @@ void setup_scene() {
     vector<float> ground_vertices = {};
     vector<int> ground_elements = {};
     // loop over ground_heights, processing a quad at a time
-    for (int ghy=0 ; ghy<GH_HEIGHT-1 ; ghy+=1) {
-        float y = float(ghy) - float(GH_HEIGHT/2);
+    for (int ghy=0 ; ghy<GH_LENGTH-1 ; ghy+=1) {
+        float y = float(ghy) - float(GH_LENGTH/2);
         float cy = y + 0.5;
         for (int ghx=0 ; ghx<GH_WIDTH-1 ; ghx+=1) {
             float x = float(ghx) - float(GH_WIDTH/2);
@@ -470,14 +472,31 @@ float time_step = 1.0 / 1000.0;
 void physics_step(float dt) {
     // process keys
     rp3d::Vector3 torque(0,0,0);
-    if (keys_down.count(SDLK_w)) torque += rp3d::Vector3(1,0,0);
-    if (keys_down.count(SDLK_a)) torque += rp3d::Vector3(0,0,-1);
-    if (keys_down.count(SDLK_s)) torque += rp3d::Vector3(-1,0,0);
-    if (keys_down.count(SDLK_d)) torque += rp3d::Vector3(0,0,1);
-    torque = torque.getUnit();
+    if (keys_down.count(SDLK_w)) torque += rp3d::Vector3(-1,0,0);
+    if (keys_down.count(SDLK_a)) torque += rp3d::Vector3(0,0,1);
+    if (keys_down.count(SDLK_s)) torque += rp3d::Vector3(1,0,0);
+    if (keys_down.count(SDLK_d)) torque += rp3d::Vector3(0,0,-1);
+    torque = torque.getUnit() * 2.0;
+
+    // check for jump
+    rp3d::Vector3 force(0,0,0);
+    if (keys_down.count(SDLK_SPACE)) {
+        const rp3d::ContactManifoldListElement * ce = marble_body->getContactManifoldsList();
+        auto e = const_cast<rp3d::ContactManifoldListElement *>(ce);
+        for ( ; e!=nullptr ; e=e->getNext()) {
+            rp3d::ContactManifold * m = e->getContactManifold();
+            rp3d::ContactPoint * p = m->getContactPoints();
+            for ( ; p!=nullptr ; p=p->getNext()) {
+                force += p->getNormal();
+            }
+        }
+
+        if (force.length() > 0.0) force = force.getUnit() * 200.0;
+    }
 
     for (float n=0 ; n<dt ; n+=time_step) {
         marble_body->applyTorque(torque);
+        marble_body->applyForceToCenterOfMass(force);
         world->update(time_step);
     }
 
@@ -497,7 +516,7 @@ void draw_scene() {
     //auto camera_pos = glm::vec3(0,3,-5);
     //glm::vec3 camera_pos = glm::rotateY(glm::vec3(0,3,-5), glm::radians((float) frame/5.0f));
     //glm::vec3 camera_pos = glm::rotateY(glm::vec3(0,3,-5), glm::radians(0.0f + cos(glm::radians((float) frame))));
-    glm::vec3 camera_pos = glm::rotateY(glm::vec3(0,3,-5), glm::radians(5.0f));
+    glm::vec3 camera_pos = glm::rotateY(glm::vec3(0,3,5), glm::radians(5.0f));
     auto scene_center = glm::vec3(0,0,0);
     auto up_vector = glm::vec3(0,1,0);
     auto view = glm::lookAt(camera_pos, scene_center, up_vector);
@@ -596,7 +615,6 @@ void draw_scene() {
     //glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0);
     glDrawArrays(GL_POINTS, 0, 1);
 
-#if 1
     // ground heightfield
     // set up uniform values
     glUseProgram(groundShaderProgram);
@@ -627,7 +645,6 @@ void draw_scene() {
 
     glBindVertexArray(ground_vao);
     glDrawElements(GL_TRIANGLES, ground_nverts, GL_UNSIGNED_INT, 0);
-#endif
 
     // "veil" for sphere depth value testing
     /*
@@ -678,7 +695,8 @@ int main(int nargs, char * args[]) {
         else if (e.type == SDL_KEYDOWN) {
             if (e.key.keysym.sym == SDLK_SPACE) go = true;
             else if (e.key.keysym.sym == SDLK_q) done = true;
-            else keys_down.insert(e.key.keysym.sym);
+
+            keys_down.insert(e.key.keysym.sym);
         }
 	else if (e.type == SDL_KEYUP) keys_down.erase(e.key.keysym.sym);
     }
