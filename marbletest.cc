@@ -7,6 +7,7 @@
 #include <glm/gtc/type_ptr.hpp>
 #define GLM_ENABLE_EXPERIMENTAL
 #include <glm/gtx/normal.hpp>
+#include <glm/gtx/rotate_vector.hpp>
 
 #include "reactphysics3d.h"
 
@@ -90,7 +91,7 @@ GLuint marbleShaderProgram;
 GLuint groundShaderProgram;
 
 void setup_shaders() {
-    // marble vertex shader
+    /*
     const char * vertex_shader_code =
         "#version 330 core\n"
         "layout (location = 0) in vec3 aPos;\n"
@@ -116,38 +117,107 @@ void setup_shaders() {
         "              0.0,                                0.0,                                0.0,                                1.0);\n"
         "}\n"
         "void main() {\n"
-        "  FragPos = aPos;\n"
+        "  FragPos = aPos + vec3(0.5,0.5,0);\n"
         "  Normal = mat3(transpose(inverse(model))) * aNormal;\n"
 
         "  vec3 look = normalize(obj_pos - camera_pos);\n"
         "  vec3 rot_axis = cross(look, normalize(aNormal));\n"
         "  float rot_angle = asin(length(rot_axis));\n"
+        "  if (dot(look, normalize(aNormal)) < 0) {\n"
+        "    rot_angle = -rot_angle;\n"
+        "    FragPos.x = 1-FragPos.x;\n"
+        "  }\n"
         "  mat4 billboard = rotationMatrix(rot_axis, rot_angle);\n"
         "  gl_Position = projection * view * model * billboard * vec4(aPos, 1.0);\n"
-
-        /*
-        "  mat4 ft = view * model;\n"
-        "  float s = length(ft * vec4(1,0,0,0));\n"
-        "  ft[0] = vec4(s,0,0,ft[0][3]);\n"
-        "  ft[1] = vec4(0,s,0,ft[1][3]);\n"
-        "  ft[2] = vec4(0,0,s,ft[2][3]);\n"
-        "  gl_Position = projection * ft * vec4(aPos, 1.0);\n"
-        */
-
-        //"  gl_Position = projection * view * model * vec4(aPos, 1.0);\n"
-        //"  gl_Position = projection * model * vec4(aPos, 1.0);\n"
         "}";
-    unsigned int vertexShader;
-    vertexShader = glCreateShader(GL_VERTEX_SHADER);
-    glShaderSource(vertexShader, 1, & vertex_shader_code, NULL);
-    glCompileShader(vertexShader);
+    */
+    // marble vertex shader
+    ifstream bbvertfile("marbletest_billboard_vert.glsl");
+    bbvertfile.seekg(0, ios::end);
+    int length = bbvertfile.tellg();
+    bbvertfile.seekg(0, ios::beg);
+    char * bbvertcode = new char[length+1];
+    bbvertfile.read(bbvertcode, length);
+    bbvertcode[length] = '\0';
+    bbvertfile.close();
+
+    unsigned int bbvertShader;
+    bbvertShader = glCreateShader(GL_VERTEX_SHADER);
+    glShaderSource(bbvertShader, 1, & bbvertcode, NULL);
+    glCompileShader(bbvertShader);
     int success;
-    glGetShaderiv(vertexShader, GL_COMPILE_STATUS, & success);
+    glGetShaderiv(bbvertShader, GL_COMPILE_STATUS, & success);
     if (! success) {
         char infoLog[512];
-        glGetShaderInfoLog(vertexShader, 512, NULL, infoLog);
+        glGetShaderInfoLog(bbvertShader, 512, NULL, infoLog);
         cout << infoLog << endl;
-        die("marble vertex shader");
+        die("billboard vertex shader");
+    }
+
+    // marble geometry shader
+    ifstream bbgeomfile("marbletest_billboard_geom.glsl");
+    bbgeomfile.seekg(0, ios::end);
+    length = bbgeomfile.tellg();
+    bbgeomfile.seekg(0, ios::beg);
+    char * bbgeomcode = new char[length+1];
+    bbgeomfile.read(bbgeomcode, length);
+    bbgeomcode[length] = '\0';
+    bbgeomfile.close();
+
+    unsigned int bbgeomShader;
+    bbgeomShader = glCreateShader(GL_GEOMETRY_SHADER);
+    glShaderSource(bbgeomShader, 1, & bbgeomcode, NULL);
+    glCompileShader(bbgeomShader);
+    glGetShaderiv(bbgeomShader, GL_COMPILE_STATUS, & success);
+    if (! success) {
+        char infoLog[512];
+        glGetShaderInfoLog(bbgeomShader, 512, NULL, infoLog);
+        cout << infoLog << endl;
+        die("billboard geometry shader");
+    }
+
+    // marble fragment shader
+    ifstream shaderfile("marbletest.glsl");
+    shaderfile.seekg(0, ios::end);
+    length = shaderfile.tellg();
+    shaderfile.seekg(0, ios::beg);
+    char * fragment_shader_code = new char[length+1];
+    shaderfile.read(fragment_shader_code, length);
+    fragment_shader_code[length] = '\0';
+    shaderfile.close();
+    /*
+    const char * fragment_shader_code = 
+        "#version 330 core\n"
+        "out vec4 FragColor;\n"
+        "void main() {\n"
+        "  FragColor = vec4(1,1,1,1);\n"
+        "}";
+    */
+
+    unsigned int fragmentShader;
+    fragmentShader = glCreateShader(GL_FRAGMENT_SHADER);
+    glShaderSource(fragmentShader, 1, & fragment_shader_code, NULL);
+    glCompileShader(fragmentShader);
+    glGetShaderiv(fragmentShader, GL_COMPILE_STATUS, & success);
+    if (! success) {
+        char infoLog[512];
+        glGetShaderInfoLog(fragmentShader, 512, NULL, infoLog);
+        cout << infoLog << endl;
+        die("fragment shader");
+    }
+
+    // marble shader program
+    marbleShaderProgram = glCreateProgram();
+    glAttachShader(marbleShaderProgram, bbvertShader);
+    glAttachShader(marbleShaderProgram, bbgeomShader);
+    glAttachShader(marbleShaderProgram, fragmentShader);
+    glLinkProgram(marbleShaderProgram);
+    glGetProgramiv(marbleShaderProgram, GL_LINK_STATUS, & success);
+    if (! success) {
+        char infoLog[512];
+        glGetShaderInfoLog(marbleShaderProgram, 512, NULL, infoLog);
+        cout << infoLog << endl;
+        die("marble shader program");
     }
 
     // ground vertex shader
@@ -172,28 +242,6 @@ void setup_shaders() {
         glGetShaderInfoLog(ground_vertexShader, 512, NULL, infoLog);
         cout << infoLog << endl;
         die("ground vertex shader");
-    }
-
-    // marble fragment shader
-    ifstream shaderfile("marbletest.glsl");
-    shaderfile.seekg(0, ios::end);
-    int length = shaderfile.tellg();
-    shaderfile.seekg(0, ios::beg);
-    char * fragment_shader_code = new char[length+1];
-    shaderfile.read(fragment_shader_code, length);
-    fragment_shader_code[length] = '\0';
-    shaderfile.close();
-
-    unsigned int fragmentShader;
-    fragmentShader = glCreateShader(GL_FRAGMENT_SHADER);
-    glShaderSource(fragmentShader, 1, & fragment_shader_code, NULL);
-    glCompileShader(fragmentShader);
-    glGetShaderiv(fragmentShader, GL_COMPILE_STATUS, & success);
-    if (! success) {
-        char infoLog[512];
-        glGetShaderInfoLog(fragmentShader, 512, NULL, infoLog);
-        cout << infoLog << endl;
-        die("fragment shader");
     }
 
     // ground geometry shader
@@ -240,19 +288,7 @@ void setup_shaders() {
         die("ground fragment shader");
     }
 
-    // shader programs
-    marbleShaderProgram = glCreateProgram();
-    glAttachShader(marbleShaderProgram, vertexShader);
-    glAttachShader(marbleShaderProgram, fragmentShader);
-    glLinkProgram(marbleShaderProgram);
-    glGetProgramiv(marbleShaderProgram, GL_LINK_STATUS, & success);
-    if (! success) {
-        char infoLog[512];
-        glGetShaderInfoLog(marbleShaderProgram, 512, NULL, infoLog);
-        cout << infoLog << endl;
-        die("marble shader program");
-    }
-
+    // ground shader program
     groundShaderProgram = glCreateProgram();
     glAttachShader(groundShaderProgram, ground_vertexShader);
     glAttachShader(groundShaderProgram, ground_geometryShader);
@@ -266,10 +302,12 @@ void setup_shaders() {
         die("ground shader program");
     }
 
-    // delete shaders (unneeded after program link)
+    //TODO delete shaders (unneeded after program link)
+    /*
     glDeleteShader(vertexShader);
     glDeleteShader(fragmentShader);
     glDeleteShader(ground_fragmentShader);
+    */
 }
 
 void add_point(vector<float> & values, glm::vec3 point) {
@@ -304,9 +342,10 @@ GLuint marble_vao;
 
 const float SIZE = 1.0; //TODO doesn't actually work properly
 
+rp3d::Vector3 gravity(0.0, -9.81, 0.0);
+
 void setup_scene() {
     // gravity and world
-    rp3d::Vector3 gravity(0.0, -9.81, 0.0);
     world = new rp3d::DynamicsWorld(gravity);
 
     // ground heightfield
@@ -372,7 +411,8 @@ void setup_scene() {
     glBufferData(GL_ELEMENT_ARRAY_BUFFER, ground_nverts * sizeof(float), & ground_elements[0], GL_STATIC_DRAW);
 
     // marble sphere
-    rp3d::Transform marble_pose(rp3d::Vector3(-0.5, 3.5, -1.0), rp3d::Quaternion::identity());
+    //rp3d::Transform marble_pose(rp3d::Vector3(-0.5, 3.5, -1.0), rp3d::Quaternion::identity());
+    rp3d::Transform marble_pose(rp3d::Vector3(0.0, 3.5, 0.0), rp3d::Quaternion::identity());
     marble_body = world->createRigidBody(marble_pose);
     auto marble_shape = new rp3d::SphereShape(SIZE/2.0);
     marble_body->addCollisionShape(marble_shape, rp3d::Transform(), 1.0);
@@ -380,11 +420,22 @@ void setup_scene() {
     marble_mat.setBounciness(rp3d::decimal(0.9));
     marble_mat.setFrictionCoefficient(rp3d::decimal(0.5));
 
+    float points[] = {0.0f, 0.0f};
+    GLuint vbo;
+    glGenBuffers(1, & vbo);
+    glGenVertexArrays(1, & marble_vao);
+    glBindVertexArray(marble_vao);
+    glBindBuffer(GL_ARRAY_BUFFER, vbo);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(points), points, GL_STATIC_DRAW);
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 2*sizeof(float), nullptr);
+
+    /*
     float vertices[] = {
-        0.0, 0.0, 0.0, 0.0,0.0,1.0,
-        SIZE,0.0, 0.0, 0.0,0.0,1.0,
-        SIZE,SIZE,0.0, 0.0,0.0,1.0,
-        0.0, SIZE,0.0, 0.0,0.0,1.0
+        -0.5, -0.5, 0.0, 0.0,0.0,1.0,
+         0.5, -0.5, 0.0, 0.0,0.0,1.0,
+         0.5,  0.5, 0.0, 0.0,0.0,1.0,
+        -0.5,  0.5, 0.0, 0.0,0.0,1.0
     };
     glGenVertexArrays(1, & marble_vao);
     GLuint vbo;
@@ -407,6 +458,7 @@ void setup_scene() {
     glGenBuffers(1, & ebo);
     glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ebo);
     glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(elements), elements, GL_STATIC_DRAW);
+    */
 }
 
 int frame = 0;
@@ -418,21 +470,49 @@ void physics_step(float dt) {
     }
 }
 
+void gravity_left() {
+    rp3d::Vector3 g = rp3d::Quaternion::fromEulerAngles(0,0,0.2) * gravity;
+    world->setGravity(g);
+}
+
+void gravity_right() {
+    rp3d::Vector3 g = rp3d::Quaternion::fromEulerAngles(0,0,-0.2) * gravity;
+    world->setGravity(g);
+}
+
+void gravity_down() {
+    world->setGravity(gravity);
+}
+
 void draw_scene() {
     // camera setup
     auto projection = glm::perspective(glm::radians(90.0f), 1.0f, 0.1f, 100.0f);
     //auto projection = glm::ortho(-4.0f, 4.0f, -4.0f, 4.0f, 0.1f, 100.0f);
 
-    auto camera_pos = glm::vec3(0,3,-5);
+    //auto camera_pos = glm::vec3(0,3,-5);
+    glm::vec3 camera_pos = glm::rotateY(glm::vec3(0,3,-5), glm::radians((float) frame/5.0f));
+    //glm::vec3 camera_pos = glm::rotateY(glm::vec3(0,3,-5), glm::radians(0.0f + cos(glm::radians((float) frame))));
+    //glm::vec3 camera_pos = glm::rotateY(glm::vec3(0,3,-5), glm::radians(45.0f));
     auto scene_center = glm::vec3(0,0,0);
     auto up_vector = glm::vec3(0,1,0);
     auto view = glm::lookAt(camera_pos, scene_center, up_vector);
+
+    //auto camera_look = glm::normalize(scene_center - camera_pos);
+    auto camera_look = glm::normalize(camera_pos - scene_center);
+    auto camera_right = glm::normalize(glm::cross(camera_look, up_vector));
+    auto camera_up = glm::normalize(glm::cross(camera_right, camera_look));
+
+    /*
+    auto temp = glm::vec4(0,0,-1, 1);
+    temp = view * temp;
+    cout << temp.x << ',' << temp.y << ',' << temp.z << ':' << temp.w << endl;
+    */
 
     // light setup
     //float ang = frame / 50.0 * M_PI;
     //auto light_pos = glm::vec3(10.0 * cos(ang), 10.0, 10.0 * sin(ang));
     auto light_pos = glm::vec3(0.0, 3.0, 0.0);
-    auto light_color = glm::vec3(0.7, 0.7, 0.7);
+    auto light_color = glm::vec3(0.9, 0.9, 0.9);
 
     // background color
     glClearColor(0.2, 0.3, 0.3, 1.0);
@@ -444,16 +524,16 @@ void draw_scene() {
     glUseProgram(marbleShaderProgram);
     unsigned int projectionLoc = glGetUniformLocation(marbleShaderProgram, "projection");
     unsigned int viewLoc = glGetUniformLocation(marbleShaderProgram, "view");
-    unsigned int lightPosLoc = glGetUniformLocation(marbleShaderProgram, "lightPos");
-    unsigned int lightColorLoc = glGetUniformLocation(marbleShaderProgram, "lightColor");
+    //unsigned int lightPosLoc = glGetUniformLocation(marbleShaderProgram, "lightPos");
+    //unsigned int lightColorLoc = glGetUniformLocation(marbleShaderProgram, "lightColor");
 
     glUniformMatrix4fv(projectionLoc, 1, GL_FALSE, glm::value_ptr(projection));
 
     glUniformMatrix4fv(viewLoc, 1, GL_FALSE, glm::value_ptr(view));
 
     //glUniform3f(lightPosLoc, 1.0, 1.0, -1.0);
-    glUniform3fv(lightPosLoc, 1, glm::value_ptr(light_pos));
-    glUniform3fv(lightColorLoc, 1, glm::value_ptr(light_color));
+    //glUniform3fv(lightPosLoc, 1, glm::value_ptr(light_pos));
+    //glUniform3fv(lightColorLoc, 1, glm::value_ptr(light_color));
 
     unsigned int cameraPosLoc = glGetUniformLocation(marbleShaderProgram, "cameraPos");
     glUniform3fv(cameraPosLoc, 1, glm::value_ptr(camera_pos));
@@ -471,12 +551,19 @@ void draw_scene() {
     marble_pos.x = tempv.x;
     marble_pos.y = tempv.y;
     marble_pos.z = tempv.z;
+    //cout << marble_pos.x << ',' << marble_pos.y << ',' << marble_pos.z << endl;
     unsigned int obj_posLoc = glGetUniformLocation(marbleShaderProgram, "obj_pos");
     glUniform3fv(obj_posLoc, 1, glm::value_ptr(marble_pos));
-    //cout << marble_pos.x << ',' << marble_pos.y << ',' << marble_pos.z << endl;
+
+    unsigned int camera_lookLoc = glGetUniformLocation(marbleShaderProgram, "camera_look");
+    glUniform3fv(camera_lookLoc, 1, glm::value_ptr(camera_look));
+    unsigned int camera_rightLoc = glGetUniformLocation(marbleShaderProgram, "camera_right");
+    glUniform3fv(camera_rightLoc, 1, glm::value_ptr(camera_right));
+    unsigned int camera_upLoc = glGetUniformLocation(marbleShaderProgram, "camera_up");
+    glUniform3fv(camera_upLoc, 1, glm::value_ptr(camera_up));
+
     auto model = glm::mat4(1.0f);
     model = glm::translate(model, marble_pos);
-    model = glm::translate(model, glm::vec3(-0.5*SIZE, -0.5*SIZE, 0));
     unsigned int modelLoc = glGetUniformLocation(marbleShaderProgram, "model");
     glUniformMatrix4fv(modelLoc, 1, GL_FALSE, glm::value_ptr(model));
 
@@ -491,15 +578,18 @@ void draw_scene() {
     glUniformMatrix3fv(obj_rotationLoc, 1, GL_FALSE, glm::value_ptr(marble_rot));
 
     // color is ignored for this fragment shader
-    unsigned int objectColorLoc = glGetUniformLocation(marbleShaderProgram, "objectColor");
-    glm::vec3 color = {0.0, 1.0, 1.0};
-    glUniform3fv(objectColorLoc, 1, glm::value_ptr(color));
+    //unsigned int objectColorLoc = glGetUniformLocation(marbleShaderProgram, "objectColor");
+    //glm::vec3 color = {0.0, 1.0, 1.0};
+    //glUniform3fv(objectColorLoc, 1, glm::value_ptr(color));
 
+    /*
     unsigned int iTimeLoc = glGetUniformLocation(marbleShaderProgram, "iTime");
     glUniform1f(iTimeLoc, frame * (20.0 / 1000.0));
+    */
 
     glBindVertexArray(marble_vao);
-    glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0);
+    //glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0);
+    glDrawArrays(GL_POINTS, 0, 1);
 
 #if 1
     // ground heightfield
@@ -533,6 +623,13 @@ void draw_scene() {
     glBindVertexArray(ground_vao);
     glDrawElements(GL_TRIANGLES, ground_nverts, GL_UNSIGNED_INT, 0);
 #endif
+
+    // "veil" for sphere depth value testing
+    /*
+    glUseProgram(veilShaderProgram);
+    unsigned int v_projectionLoc = glGetUniformLocation(veilShaderProgram, "projection");
+    unsigned int v_viewLoc = glGetUniformLocation(veilShaderProgram, "view");
+    */
 }
 
 unsigned int FRAME_TICK;
@@ -576,6 +673,9 @@ int main(int nargs, char * args[]) {
         else if (e.type == SDL_KEYDOWN) {
             if (e.key.keysym.sym == SDLK_SPACE) go = true;
             else if (e.key.keysym.sym == SDLK_q) done = true;
+            else if (e.key.keysym.sym == SDLK_a) gravity_left();
+            else if (e.key.keysym.sym == SDLK_d) gravity_right();
+            else if (e.key.keysym.sym == SDLK_x) gravity_down();
         }
     }
 
