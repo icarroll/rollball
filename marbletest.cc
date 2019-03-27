@@ -358,8 +358,9 @@ void setup_scene() {
     auto ground_shape = new rp3d::HeightFieldShape(GH_LENGTH, GH_WIDTH, min_height, max_height, ground_heights, rp3d::HeightFieldShape::HeightDataType::HEIGHT_FLOAT_TYPE);
     ground_body->addCollisionShape(ground_shape, rp3d::Transform(), 1.0);
     auto ground_mat = ground_body->getMaterial();
-    ground_mat.setBounciness(rp3d::decimal(0.9));
-    ground_mat.setFrictionCoefficient(rp3d::decimal(0.5));
+    ground_mat.setBounciness(rp3d::decimal(0.5));
+    ground_mat.setFrictionCoefficient(rp3d::decimal(0.3));
+    ground_body->setMaterial(ground_mat);
 
     vector<float> ground_vertices = {};
     vector<int> ground_elements = {};
@@ -420,8 +421,9 @@ void setup_scene() {
     auto marble_shape = new rp3d::SphereShape(SIZE/2.0);
     marble_body->addCollisionShape(marble_shape, rp3d::Transform(), 1.0);
     auto marble_mat = marble_body->getMaterial();
-    marble_mat.setBounciness(rp3d::decimal(0.9));
-    marble_mat.setFrictionCoefficient(rp3d::decimal(0.5));
+    marble_mat.setBounciness(rp3d::decimal(0.5));
+    marble_mat.setFrictionCoefficient(rp3d::decimal(0.3));
+    marble_body->setMaterial(marble_mat);
 
     float points[] = {0.0f, 0.0f};
     GLuint vbo;
@@ -476,6 +478,8 @@ void physics_step(float dt) {
     if (keys_down.count(SDLK_a)) torque += rp3d::Vector3(0,0,1);
     if (keys_down.count(SDLK_s)) torque += rp3d::Vector3(1,0,0);
     if (keys_down.count(SDLK_d)) torque += rp3d::Vector3(0,0,-1);
+    if (keys_down.count(SDLK_q)) torque += rp3d::Vector3(0,1,0);
+    if (keys_down.count(SDLK_e)) torque += rp3d::Vector3(0,-1,0);
     torque = torque.getUnit() * 2.0;
 
     // check for jump
@@ -694,7 +698,7 @@ int main(int nargs, char * args[]) {
         }
         else if (e.type == SDL_KEYDOWN) {
             if (e.key.keysym.sym == SDLK_SPACE) go = true;
-            else if (e.key.keysym.sym == SDLK_q) done = true;
+            else if (e.key.keysym.sym == SDLK_ESCAPE) done = true;
 
             keys_down.insert(e.key.keysym.sym);
         }
