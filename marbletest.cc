@@ -9,6 +9,7 @@
 #define GLM_ENABLE_EXPERIMENTAL
 #include <glm/gtx/normal.hpp>
 #include <glm/gtx/rotate_vector.hpp>
+#include <glm/gtx/vector_angle.hpp>
 
 #include "reactphysics3d.h"
 #include "collision/ContactManifold.h"
@@ -97,6 +98,12 @@ glm::vec3 xlat(rp3d::Vector3 invec) {
     outvec.y = invec.y;
     outvec.z = invec.z;
     return outvec;
+}
+
+float oriented_angle(rp3d::Vector2 rp_v1, rp3d::Vector2 rp_v2) {
+    glm::vec2 v1 = glm::normalize(glm::vec2(rp_v1.x, rp_v1.y));
+    glm::vec2 v2 = glm::normalize(glm::vec2(rp_v2.x, rp_v2.y));
+    return glm::orientedAngle(v1, v2);
 }
 
 GLuint marbleShaderProgram;
@@ -354,8 +361,6 @@ int ground_nverts;
 
 GLuint marble_vao;
 
-const float SIZE = 1.0; //TODO doesn't actually work properly
-
 rp3d::Vector3 gravity(0.0, -9.81, 0.0);
 
 rp3d::Vector3 SPAWN_POS(0.0, 3.5, -0.1);
@@ -443,7 +448,7 @@ void setup_scene() {
     //rp3d::Transform marble_pose(rp3d::Vector3(-0.5, 3.5, -1.0), rp3d::Quaternion::identity());
     rp3d::Transform marble_pose(SPAWN_POS, rp3d::Quaternion::identity());
     marble_body = world->createRigidBody(marble_pose);
-    auto marble_shape = new rp3d::SphereShape(SIZE/2.0);
+    auto marble_shape = new rp3d::SphereShape(0.5);
     marble_body->addCollisionShape(marble_shape, rp3d::Transform(), 1.0);
     auto marble_mat = marble_body->getMaterial();
     marble_mat.setBounciness(rp3d::decimal(0.5));
@@ -493,10 +498,12 @@ void setup_scene() {
 
 const float DIST = 6.0;
 const float HEIGHT = 3.0;
-const float FOLLOW = 0.1;
+const float FOLLOW = 1.0;
 const float LIFT = 2.0;
+const float TURN = 2.0;
 const float JUMP = 200.0;
 const float OUT = 10.0;
+const float ORBIT = 5.0;
 
 set<SDL_Keycode> keys_down;
 
@@ -513,11 +520,8 @@ void physics_step(float dt) {
         if (keys_down.count(SDLK_a)) mar_torque += rp3d::Vector3(0,0,1);
         if (keys_down.count(SDLK_s)) mar_torque += rp3d::Vector3(1,0,0);
         if (keys_down.count(SDLK_d)) mar_torque += rp3d::Vector3(0,0,-1);
-        if (keys_down.count(SDLK_q)) mar_torque += rp3d::Vector3(0,1,0);
-        if (keys_down.count(SDLK_e)) mar_torque += rp3d::Vector3(0,-1,0);
         mar_torque = mar_torque.getUnit() * 3.0;
     }
-
 
     // check for jump
     rp3d::Vector3 mar_force(0,0,0);
@@ -536,6 +540,11 @@ void physics_step(float dt) {
         if (mar_force.length() > 0.0) mar_force = mar_force.getUnit() * JUMP;
     }
 
+    // orbit camera
+    float cam_strafe_right = 0.0;
+    if (keys_down.count(SDLK_q)) cam_strafe_right -= ORBIT;
+    if (keys_down.count(SDLK_e)) cam_strafe_right += ORBIT;
+
     // physics update loop
     for (float n=0 ; n<dt ; n+=time_step) {
         if (stop) marble_body->setAngularVelocity(rp3d::Vector3(0,0,0));
@@ -547,15 +556,24 @@ void physics_step(float dt) {
         auto camera_tran = camera_body->getTransform();
         rp3d::Vector3 rp_cpos = camera_tran.getPosition();
         rp3d::Quaternion rp_cornt = camera_tran.getOrientation();
-        rp3d::Vector3 rp_clook = (rp_cornt * rp3d::Vector3(0,0,-1) + rp_cpos)
-                                 * DIST;
-        rp3d::Vector3 cam_follow = (rp_mpos - rp_clook).getUnit() * FOLLOW;
-        float dy = rp_mpos.y - rp_cpos.y + HEIGHT;
-        rp3d::Vector3 cam_lift(0, dy * LIFT, 0);
-        //TODO change to setting linear and angular velocity
-        camera_body->applyForce(cam_follow, rp_clook);
-        camera_body->applyForceToCenterOfMass(cam_lift);
 
+        rp3d::Vector3 rp_clook = rp_cornt * rp3d::Vector3(0,0,-1);
+        rp3d::Vector3 rp_cmpos = rp_mpos - rp_cpos;
+        rp3d::Vector2 rp_clook_xz(rp_clook.x, rp_clook.z);
+        rp3d::Vector2 rp_cmpos_xz(rp_cmpos.x, rp_cmpos.z);
+
+        rp3d::Vector2 pln_vel = rp_clook_xz * (rp_cmpos_xz.length() - DIST) * FOLLOW;
+        //rp3d::Quaternion right90 = rp3d::Quaternion::fromEulerAngles(0,M_PI/2.0,0);
+        //rp3d::Vector2 rp_cright_xz = right90 * rp_clook_xz;
+        rp3d::Vector2 rp_cright_xz = rp_clook_xz.getOneUnitOrthogonalVector();
+        pln_vel += rp_cright_xz * cam_strafe_right;
+        float up_vel = (rp_mpos.y - rp_cpos.y + HEIGHT) * LIFT;
+        camera_body->setLinearVelocity(rp3d::Vector3(pln_vel.x,up_vel,pln_vel.y));
+
+        float rot_vel = oriented_angle(rp_cmpos_xz, rp_clook_xz) * TURN;
+        camera_body->setAngularVelocity(rp3d::Vector3(0,rot_vel,0));
+
+        // physics step
         world->update(time_step);
     }
 
@@ -699,7 +717,7 @@ void draw_scene() {
     unsigned int sphere_posLoc = glGetUniformLocation(groundShaderProgram, "sphere_pos");
     glUniform3fv(sphere_posLoc, 1, glm::value_ptr(marble_pos));
     unsigned int sphere_rLoc = glGetUniformLocation(groundShaderProgram, "sphere_r");
-    glUniform1f(sphere_rLoc, SIZE/2.0);
+    glUniform1f(sphere_rLoc, 0.5);
 
     // draw ground
     auto g_model = glm::mat4(1.0f);
