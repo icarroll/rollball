@@ -5,6 +5,8 @@ layout (triangle_strip, max_vertices=4) out;
 
 out vec2 uv;
 
+uniform float aspect;
+
 void quad(vec4 pos, vec4 right, vec4 up) {
   gl_Position = pos - right - up;;
   uv = vec2(1,0);
@@ -26,5 +28,5 @@ void quad(vec4 pos, vec4 right, vec4 up) {
 }
 
 void main() {
-  quad(gl_in[0].gl_Position, vec4(0.5,0,0,0), vec4(0,0.5,0,0));
+  quad(gl_in[0].gl_Position, vec4(0.5/aspect,0,0,0), vec4(0,0.5,0,0));
 }

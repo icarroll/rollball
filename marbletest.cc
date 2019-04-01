@@ -22,10 +22,11 @@ extern "C" {
 
 using namespace std;
 
-const int SCREEN_WIDTH = 800;
+const int SCREEN_WIDTH = 1200;
 const int SCREEN_HEIGHT = 800;
+const float ASPECT = float(SCREEN_WIDTH) / float(SCREEN_HEIGHT);
 
-char WINDOW_NAME[] = "Cosmic Marble!";
+char WINDOW_NAME[] = "Lost Your Marbles?";
 SDL_Window * gWindow = NULL;
 SDL_GLContext gContext;
 
@@ -88,6 +89,14 @@ void close()
     gWindow = NULL;
 
     SDL_Quit();
+}
+
+glm::vec3 xlat(rp3d::Vector3 invec) {
+    glm::vec3 outvec;
+    outvec.x = invec.x;
+    outvec.y = invec.y;
+    outvec.z = invec.z;
+    return outvec;
 }
 
 GLuint marbleShaderProgram;
@@ -322,21 +331,23 @@ void add_point(vector<float> & values, glm::vec3 point) {
 float min_height = 0.0;
 float max_height = 1.0;
 // column-major order
-const int GH_LENGTH = 7;
-const int GH_WIDTH = 7;
+const int GH_LENGTH = 8;
+const int GH_WIDTH = 13;
 float ground_heights[GH_LENGTH][GH_WIDTH] = {
-    {0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5},
-    {0.5, 0.0, 0.0, 0.0, 0.0, 0.0, 0.5},
-    {0.5, 0.0, 1.0, 1.0, 0.0, 0.0, 0.5},
-    {0.5, 0.0, 1.0, 1.0, 0.0, 0.0, 0.5},
-    {0.5, 0.0, 0.0, 0.0, 1.0, 0.0, 0.5},
-    {0.5, 0.0, 0.0, 0.0, 0.0, 0.0, 0.5},
-    {0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5},
+    {0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5},
+    {0.5, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.5},
+    {0.5, 0.0, 1.0, 1.0, 0.5, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.5},
+    {0.5, 0.0, 1.0, 1.0, 0.5, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.5},
+    {0.5, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.5},
+    {0.5, 0.0, 0.0, 0.0, 0.0, 0.0, 0.2, 0.5, 1.0, 0.5, 0.2, 0.0, 0.5},
+    {0.5, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.5},
+    {0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5},
 };
 
 rp3d::DynamicsWorld * world;
 rp3d::RigidBody * ground_body;
 rp3d::RigidBody * marble_body;
+rp3d::RigidBody * camera_body;
 
 GLuint ground_vao;
 int ground_nverts;
@@ -347,23 +358,30 @@ const float SIZE = 1.0; //TODO doesn't actually work properly
 
 rp3d::Vector3 gravity(0.0, -9.81, 0.0);
 
+rp3d::Vector3 SPAWN_POS(0.0, 3.5, -0.1);
+
+vector<float> ground_vertices = {};
+vector<int> ground_elements = {};
+rp3d::TriangleMesh ground_tri_mesh;
+
 void setup_scene() {
     // gravity and world
     world = new rp3d::DynamicsWorld(gravity);
 
+    // camera
+    rp3d::Transform camera_pose(rp3d::Vector3(0, 3, 5), rp3d::Quaternion::identity());
+    camera_body = world->createRigidBody(camera_pose);
+    camera_body->setType(rp3d::BodyType::KINEMATIC);
+
     // ground heightfield
-    rp3d::Transform ground_pose(rp3d::Vector3(0, (min_height + max_height)/2.0, 0), rp3d::Quaternion::identity());
+    rp3d::Transform ground_pose(rp3d::Vector3(0, 0, 0), rp3d::Quaternion::identity());
     ground_body = world->createRigidBody(ground_pose);
     ground_body->setType(rp3d::BodyType::STATIC);
-    auto ground_shape = new rp3d::HeightFieldShape(GH_LENGTH, GH_WIDTH, min_height, max_height, ground_heights, rp3d::HeightFieldShape::HeightDataType::HEIGHT_FLOAT_TYPE);
-    ground_body->addCollisionShape(ground_shape, rp3d::Transform(), 1.0);
     auto ground_mat = ground_body->getMaterial();
     ground_mat.setBounciness(rp3d::decimal(0.5));
-    ground_mat.setFrictionCoefficient(rp3d::decimal(0.3));
+    ground_mat.setFrictionCoefficient(rp3d::decimal(0.5));
     ground_body->setMaterial(ground_mat);
 
-    vector<float> ground_vertices = {};
-    vector<int> ground_elements = {};
     // loop over ground_heights, processing a quad at a time
     for (int ghy=0 ; ghy<GH_LENGTH-1 ; ghy+=1) {
         float y = float(ghy) - float(GH_LENGTH/2);
@@ -414,15 +432,22 @@ void setup_scene() {
     ground_nverts = ground_elements.size();
     glBufferData(GL_ELEMENT_ARRAY_BUFFER, ground_nverts * sizeof(float), & ground_elements[0], GL_STATIC_DRAW);
 
+    int nverts = ground_vertices.size() / 3;
+    int ntris = ground_elements.size() / 3;
+    rp3d::TriangleVertexArray * tva = new rp3d::TriangleVertexArray(nverts, & ground_vertices[0], 3*sizeof(float), ntris, & ground_elements[0], 3 * sizeof(int), rp3d::TriangleVertexArray::VertexDataType::VERTEX_FLOAT_TYPE, rp3d::TriangleVertexArray::IndexDataType::INDEX_INTEGER_TYPE);
+    ground_tri_mesh.addSubpart(tva);
+    rp3d::ConcaveMeshShape * ground_shape = new rp3d::ConcaveMeshShape(& ground_tri_mesh);
+    ground_body->addCollisionShape(ground_shape, rp3d::Transform(), 1.0);
+
     // marble sphere
     //rp3d::Transform marble_pose(rp3d::Vector3(-0.5, 3.5, -1.0), rp3d::Quaternion::identity());
-    rp3d::Transform marble_pose(rp3d::Vector3(0.0, 3.5, 0.0), rp3d::Quaternion::identity());
+    rp3d::Transform marble_pose(SPAWN_POS, rp3d::Quaternion::identity());
     marble_body = world->createRigidBody(marble_pose);
     auto marble_shape = new rp3d::SphereShape(SIZE/2.0);
     marble_body->addCollisionShape(marble_shape, rp3d::Transform(), 1.0);
     auto marble_mat = marble_body->getMaterial();
     marble_mat.setBounciness(rp3d::decimal(0.5));
-    marble_mat.setFrictionCoefficient(rp3d::decimal(0.3));
+    marble_mat.setFrictionCoefficient(rp3d::decimal(0.5));
     marble_body->setMaterial(marble_mat);
 
     float points[] = {0.0f, 0.0f};
@@ -466,6 +491,13 @@ void setup_scene() {
     */
 }
 
+const float DIST = 6.0;
+const float HEIGHT = 3.0;
+const float FOLLOW = 0.1;
+const float LIFT = 2.0;
+const float JUMP = 200.0;
+const float OUT = 10.0;
+
 set<SDL_Keycode> keys_down;
 
 int frame = 0;
@@ -473,60 +505,94 @@ int frame = 0;
 float time_step = 1.0 / 1000.0;
 void physics_step(float dt) {
     // process keys
-    rp3d::Vector3 torque(0,0,0);
-    if (keys_down.count(SDLK_w)) torque += rp3d::Vector3(-1,0,0);
-    if (keys_down.count(SDLK_a)) torque += rp3d::Vector3(0,0,1);
-    if (keys_down.count(SDLK_s)) torque += rp3d::Vector3(1,0,0);
-    if (keys_down.count(SDLK_d)) torque += rp3d::Vector3(0,0,-1);
-    if (keys_down.count(SDLK_q)) torque += rp3d::Vector3(0,1,0);
-    if (keys_down.count(SDLK_e)) torque += rp3d::Vector3(0,-1,0);
-    torque = torque.getUnit() * 2.0;
+    bool stop = false;
+    rp3d::Vector3 mar_torque(0,0,0);
+    if (keys_down.count(SDLK_x)) stop = true;
+    else {
+        if (keys_down.count(SDLK_w)) mar_torque += rp3d::Vector3(-1,0,0);
+        if (keys_down.count(SDLK_a)) mar_torque += rp3d::Vector3(0,0,1);
+        if (keys_down.count(SDLK_s)) mar_torque += rp3d::Vector3(1,0,0);
+        if (keys_down.count(SDLK_d)) mar_torque += rp3d::Vector3(0,0,-1);
+        if (keys_down.count(SDLK_q)) mar_torque += rp3d::Vector3(0,1,0);
+        if (keys_down.count(SDLK_e)) mar_torque += rp3d::Vector3(0,-1,0);
+        mar_torque = mar_torque.getUnit() * 3.0;
+    }
+
 
     // check for jump
-    rp3d::Vector3 force(0,0,0);
+    rp3d::Vector3 mar_force(0,0,0);
     if (keys_down.count(SDLK_SPACE)) {
-        const rp3d::ContactManifoldListElement * ce = marble_body->getContactManifoldsList();
+        const rp3d::ContactManifoldListElement * ce =
+                marble_body->getContactManifoldsList();
         auto e = const_cast<rp3d::ContactManifoldListElement *>(ce);
         for ( ; e!=nullptr ; e=e->getNext()) {
             rp3d::ContactManifold * m = e->getContactManifold();
             rp3d::ContactPoint * p = m->getContactPoints();
             for ( ; p!=nullptr ; p=p->getNext()) {
-                force += p->getNormal();
+                mar_force += p->getNormal();
             }
         }
 
-        if (force.length() > 0.0) force = force.getUnit() * 200.0;
+        if (mar_force.length() > 0.0) mar_force = mar_force.getUnit() * JUMP;
     }
 
+    // physics update loop
     for (float n=0 ; n<dt ; n+=time_step) {
-        marble_body->applyTorque(torque);
-        marble_body->applyForceToCenterOfMass(force);
+        if (stop) marble_body->setAngularVelocity(rp3d::Vector3(0,0,0));
+        else marble_body->applyTorque(mar_torque);
+        marble_body->applyForceToCenterOfMass(mar_force);
+
+        // move camera
+        rp3d::Vector3 rp_mpos = marble_body->getTransform().getPosition();
+        auto camera_tran = camera_body->getTransform();
+        rp3d::Vector3 rp_cpos = camera_tran.getPosition();
+        rp3d::Quaternion rp_cornt = camera_tran.getOrientation();
+        rp3d::Vector3 rp_clook = (rp_cornt * rp3d::Vector3(0,0,-1) + rp_cpos)
+                                 * DIST;
+        rp3d::Vector3 cam_follow = (rp_mpos - rp_clook).getUnit() * FOLLOW;
+        float dy = rp_mpos.y - rp_cpos.y + HEIGHT;
+        rp3d::Vector3 cam_lift(0, dy * LIFT, 0);
+        //TODO change to setting linear and angular velocity
+        camera_body->applyForce(cam_follow, rp_clook);
+        camera_body->applyForceToCenterOfMass(cam_lift);
+
         world->update(time_step);
     }
 
+    // check for fall out
     rp3d::Transform t = marble_body->getTransform();
-    if (t.getPosition().y < -10.0) {
-        t.setPosition(rp3d::Vector3(0,3,0));
+    rp3d::Vector3 pos = t.getPosition();
+    if (pos.y < -OUT || abs(pos.x) > OUT || abs(pos.y) > OUT) {
+        t.setPosition(SPAWN_POS);
         marble_body->setTransform(t);
         marble_body->setLinearVelocity(rp3d::Vector3(0,0,0));
     }
 }
 
 void draw_scene() {
+    // get marble position
+    auto marble_tran = marble_body->getTransform();
+    glm::vec3 marble_pos = xlat(marble_tran.getPosition());
+
     // camera setup
-    auto projection = glm::perspective(glm::radians(90.0f), 1.0f, 0.1f, 100.0f);
+    auto projection = glm::perspective(glm::radians(90.0f), ASPECT, 0.1f, 100.0f);
     //auto projection = glm::ortho(-4.0f, 4.0f, -4.0f, 4.0f, 0.1f, 100.0f);
 
     //auto camera_pos = glm::vec3(0,3,-5);
     //glm::vec3 camera_pos = glm::rotateY(glm::vec3(0,3,-5), glm::radians((float) frame/5.0f));
     //glm::vec3 camera_pos = glm::rotateY(glm::vec3(0,3,-5), glm::radians(0.0f + cos(glm::radians((float) frame))));
-    glm::vec3 camera_pos = glm::rotateY(glm::vec3(0,3,5), glm::radians(5.0f));
-    auto scene_center = glm::vec3(0,0,0);
+    //glm::vec3 camera_pos = glm::rotateY(glm::vec3(0,3,5), glm::radians(5.0f));
+    auto camera_tran = camera_body->getTransform();
+    rp3d::Vector3 rp_cpos = camera_tran.getPosition();
+    glm::vec3 camera_pos = xlat(rp_cpos);
+    rp3d::Quaternion rp_cornt = camera_tran.getOrientation();
+    glm::vec3 camera_tgt = xlat(rp_cornt * rp3d::Vector3(0,0,-1) + rp_cpos);
+    //auto camera_tgt = glm::vec3(0,0,0);
+    //auto camera_tgt = marble_pos;
     auto up_vector = glm::vec3(0,1,0);
-    auto view = glm::lookAt(camera_pos, scene_center, up_vector);
+    auto view = glm::lookAt(camera_pos, camera_tgt, up_vector);
 
-    //auto camera_look = glm::normalize(scene_center - camera_pos);
-    auto camera_look = glm::normalize(camera_pos - scene_center);
+    auto camera_look = glm::normalize(camera_pos - camera_tgt);
     auto camera_right = glm::normalize(glm::cross(camera_look, up_vector));
     auto camera_up = glm::normalize(glm::cross(camera_right, camera_look));
 
@@ -572,13 +638,6 @@ void draw_scene() {
     unsigned int up_vectorLoc = glGetUniformLocation(marbleShaderProgram, "up_vector");
     glUniform3f(up_vectorLoc, up_vector.x, up_vector.y, up_vector.z);
 
-    auto marble_tran = marble_body->getTransform();
-
-    rp3d::Vector3 tempv = marble_tran.getPosition();
-    glm::vec3 marble_pos;
-    marble_pos.x = tempv.x;
-    marble_pos.y = tempv.y;
-    marble_pos.z = tempv.z;
     //cout << marble_pos.x << ',' << marble_pos.y << ',' << marble_pos.z << endl;
     unsigned int obj_posLoc = glGetUniformLocation(marbleShaderProgram, "obj_pos");
     glUniform3fv(obj_posLoc, 1, glm::value_ptr(marble_pos));
@@ -589,6 +648,9 @@ void draw_scene() {
     glUniform3fv(camera_rightLoc, 1, glm::value_ptr(camera_right));
     unsigned int camera_upLoc = glGetUniformLocation(marbleShaderProgram, "camera_up");
     glUniform3fv(camera_upLoc, 1, glm::value_ptr(camera_up));
+
+    unsigned int aspectLoc = glGetUniformLocation(marbleShaderProgram, "aspect");
+    glUniform1f(aspectLoc, ASPECT);
 
     auto model = glm::mat4(1.0f);
     model = glm::translate(model, marble_pos);
