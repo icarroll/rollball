@@ -374,7 +374,8 @@ void setup_scene() {
     world = new rp3d::DynamicsWorld(gravity);
 
     // camera
-    rp3d::Transform camera_pose(rp3d::Vector3(0, 3, 5), rp3d::Quaternion::identity());
+    auto cam_orient = rp3d::Quaternion::fromEulerAngles(-M_PI/6, 0, 0);
+    rp3d::Transform camera_pose(rp3d::Vector3(0, 3, 5), cam_orient);
     camera_body = world->createRigidBody(camera_pose);
     camera_body->setType(rp3d::BodyType::KINEMATIC);
 
